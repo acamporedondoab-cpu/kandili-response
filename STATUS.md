@@ -1,6 +1,6 @@
 # STATUS — Guardian Dispatch Platform
 
-**Last Updated:** 2026-04-24 (session 14)  
+**Last Updated:** 2026-04-25 (session 15)  
 **Stack:** Next.js 14 · Supabase · Firebase Cloud Messaging · React Native/Expo · TypeScript
 
 ---
@@ -545,6 +545,66 @@ Without `nodeModulesPaths`: `Unable to resolve "react-native"` from components (
 - Added `readOnly?: boolean` prop to `TLDashboard`
 - When `readOnly={true}` (admin view): duty toggle button replaced with non-interactive status badge (same visual, no `onClick`)
 - TL's own dashboard unaffected (`readOnly` defaults to `false`)
+
+---
+
+---
+
+## Session 15 — Bug Fixes: Permissions, Cross-Org Transfer, Realtime (2026-04-25)
+
+### Bug 1 — Admin Could Acknowledge Incidents (FIXED) ✅
+
+**Problem:** `acknowledgeTLAction` server action allowed both `team_leader` and `super_admin` roles to acknowledge incidents. Admin should be read-only in the TL incident flow.
+
+**Fixes applied:**
+- `app/app/lib/supabase/incident-actions.ts` — role check tightened from `role !== 'team_leader' && role !== 'super_admin'` to `role !== 'team_leader'` only. Admin is now blocked at the server action level.
+- `app/app/dashboard/tl/incidents/[id]/page.tsx` — added `userRole` state, fetches current user's role from `profiles` on mount. `canAcknowledge = userRole === 'team_leader'`. Acknowledge button hidden for admin. Acknowledged banner split into its own independent conditional so it still shows when already acknowledged, regardless of viewer role.
+
+---
+
+### Bug 2 — Cross-Org Transfer Context Missing (FIXED) ✅
+
+**Problem:** When the escalation engine transfers an incident to another org, the receiving TL had zero context about why or where it came from.
+
+**Fixes applied:**
+- `supabase/014_cross_org_transfer.sql` — NEW migration: adds `original_org_id uuid REFERENCES organizations(id)` and `transfer_reason text` to the `incidents` table. **Must be run manually in Supabase SQL Editor.**
+- `app/app/dashboard/tl/incidents/[id]/page.tsx` — `transfer_reason` added to SELECT query and `Incident` type. When `transfer_reason` is set, a purple banner renders above the acknowledge card:
+  > ↔ Transferred from [Original Org Name] — no available responders
+- Ownership/assignment logic untouched.
+
+---
+
+### Bug 3 — TL Dashboard Infinite Loading (FIXED) ✅
+
+**Problem:** `/dashboard/tl` sometimes entered a permanent loading/skeleton state with no error shown and no way to recover.
+
+**Fixes applied:**
+- `app/app/dashboard/tl/error.tsx` — NEW Next.js error boundary for the `/dashboard/tl` route. Shows the error message (or a safe fallback) and a "Try again" button that calls `reset()`. Prevents the page from being silently stuck.
+
+---
+
+### Bug 4 — Realtime Using router.refresh() (FIXED + STABILISED) ✅
+
+**Problem:** `DashboardClient.tsx` used `router.refresh()` inside the Supabase realtime listener. This caused Next.js to re-render the server component, which recreated the router reference, which re-triggered the `useEffect`, causing a re-subscription loop — high CPU, duplicate listeners, possible infinite loop.
+
+**Fix — Phase 1 (remove fetch pattern):**
+- Removed `router`, `useRouter`, `fetchLiveIncidents()`, and all Supabase queries from inside the realtime listener.
+- Replaced with pure local state updates using `payload.new` / `payload.old`:
+  - `UPDATE` → find by `id`, replace row only if `status` changed
+  - `INSERT` → prepend if not already in list, cap at 10
+  - `DELETE` → filter out by `id`
+- Added `liveIncidents` state initialised from server-fetched `incidents` prop.
+
+**Fix — Phase 2 (stabilise subscription):**
+- Moved `createClient()` inside the `useEffect` — client is scoped to the effect, not the render cycle.
+- Changed dependency array from `[supabase]` to `[]` — effect runs exactly once on mount, never re-subscribes.
+- Removed module-level `const supabase = useMemo(() => createClient(), [])` — no longer needed.
+- Removed `useMemo` from the React import.
+- `orgId` removed from props destructuring (was only used by the deleted fetch). Kept as optional in the type interface since the server still passes it.
+
+**Files changed:** `app/app/dashboard/DashboardClient.tsx`, `app/app/dashboard/page.tsx`
+
+**Result:** Zero API calls in the realtime path. Every status change is instant, in-memory, and loop-free.
 
 ---
 
