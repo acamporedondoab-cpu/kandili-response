@@ -1,6 +1,7 @@
 'use client'
 
 import { useEffect, useState } from 'react'
+import { useFormStatus } from 'react-dom'
 import Image from 'next/image'
 import { login } from '@/app/lib/auth/actions'
 
@@ -179,34 +180,50 @@ function InputField({
 }
 
 function SubmitButton() {
+  const { pending } = useFormStatus()
   const [state, setState] = useState<'idle' | 'hover' | 'active'>('idle')
 
   return (
     <button
       type="submit"
-      onMouseEnter={() => setState('hover')}
+      disabled={pending}
+      onMouseEnter={() => !pending && setState('hover')}
       onMouseLeave={() => setState('idle')}
-      onMouseDown={() => setState('active')}
+      onMouseDown={() => !pending && setState('active')}
       onMouseUp={() => setState('hover')}
-      className="w-full py-3 rounded-xl font-bold text-white text-sm tracking-[0.12em] uppercase"
+      className="w-full py-3 rounded-xl font-bold text-white text-sm tracking-[0.12em] uppercase flex items-center justify-center gap-2"
       style={{
-        background: 'linear-gradient(135deg, #00E5FF 0%, #3A86FF 100%)',
+        background: pending
+          ? 'linear-gradient(135deg, rgba(0,229,255,0.55) 0%, rgba(58,134,255,0.55) 100%)'
+          : 'linear-gradient(135deg, #00E5FF 0%, #3A86FF 100%)',
         boxShadow:
-          state === 'hover'
+          state === 'hover' && !pending
             ? '0 6px 28px rgba(0,229,255,0.40), 0 2px 8px rgba(58,134,255,0.30)'
-            : state === 'active'
+            : state === 'active' && !pending
             ? '0 2px 10px rgba(0,229,255,0.25)'
             : '0 4px 18px rgba(0,229,255,0.20)',
         transform:
-          state === 'hover'
+          state === 'hover' && !pending
             ? 'translateY(-2px)'
-            : state === 'active'
+            : state === 'active' && !pending
             ? 'translateY(1px)'
             : 'translateY(0)',
-        transition: 'transform 200ms ease, box-shadow 200ms ease',
+        transition: 'transform 200ms ease, box-shadow 200ms ease, background 200ms ease',
+        cursor: pending ? 'not-allowed' : 'pointer',
       }}
     >
-      Sign In
+      {pending && (
+        <svg
+          className="animate-spin"
+          width="15" height="15"
+          viewBox="0 0 24 24" fill="none"
+          style={{ opacity: 0.9 }}
+        >
+          <circle cx="12" cy="12" r="10" stroke="rgba(255,255,255,0.3)" strokeWidth="3" />
+          <path d="M12 2a10 10 0 0 1 10 10" stroke="white" strokeWidth="3" strokeLinecap="round" />
+        </svg>
+      )}
+      {pending ? 'Signing In…' : 'Sign In'}
     </button>
   )
 }
