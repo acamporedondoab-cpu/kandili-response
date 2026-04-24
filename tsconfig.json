@@ -1,0 +1,18 @@
+{
+  "compilerOptions": {
+    "target": "esnext",
+    "module": "commonjs",
+    "jsx": "react-native",
+    "strict": false,
+    "esModuleInterop": true,
+    "allowSyntheticDefaultImports": true,
+    "moduleResolution": "node",
+    "baseUrl": ".",
+    "typeRoots": ["./mobile/node_modules/@types"],
+    "paths": {
+      "react-native": ["./mobile/node_modules/react-native"],
+      "react": ["./mobile/node_modules/react"]
+    }
+  },
+  "include": ["components/**/*"]
+}

@@ -1,0 +1,41 @@
+{
+  "expo": {
+    "name": "Guardian Dispatch",
+    "slug": "guardian-dispatch",
+    "version": "1.0.0",
+    "orientation": "portrait",
+    "platforms": ["ios", "android"],
+    "plugins": [
+      "expo-secure-store",
+      [
+        "expo-location",
+        {
+          "locationAlwaysAndWhenInUsePermission": "Guardian Dispatch needs your location to send help to the right place.",
+          "locationWhenInUsePermission": "Guardian Dispatch needs your location to send help to the right place."
+        }
+      ],
+      [
+        "expo-notifications",
+        {
+          "icon": "./assets/icon.png",
+          "color": "#DC2626",
+          "sounds": []
+        }
+      ]
+    ],
+    "ios": {
+      "infoPlist": {
+        "NSLocationWhenInUseUsageDescription": "Guardian Dispatch needs your location to send help to the right place.",
+        "NSLocationAlwaysAndWhenInUseUsageDescription": "Guardian Dispatch needs your location to track responders in real-time."
+      }
+    },
+    "android": {
+      "permissions": [
+        "ACCESS_COARSE_LOCATION",
+        "ACCESS_FINE_LOCATION",
+        "RECEIVE_BOOT_COMPLETED",
+        "VIBRATE"
+      ]
+    }
+  }
+}
