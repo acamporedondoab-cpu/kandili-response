@@ -23,34 +23,41 @@ export default async function TeamLeaderDashboardPage() {
 
   const supabase = createClient()
 
-  const [incidentsResult, respondersResult, orgResult, tlsResult] = await Promise.all([
-    supabase
-      .from('incidents')
-      .select(
-        'id, incident_code, emergency_type, status, citizen_address, citizen_lat, citizen_lng, created_at, assigned_responder_id'
-      )
-      .eq('organization_id', orgId)
-      .in('status', ACTIVE_STATUSES)
-      .order('created_at', { ascending: false }),
+  const tlTimeout = new Promise<never>((_, reject) =>
+    setTimeout(() => reject(new Error('Dashboard data fetch timed out. Please try again.')), 8000)
+  )
 
-    supabase
-      .from('profiles')
-      .select('id, full_name, is_on_duty, last_known_lat, last_known_lng')
-      .eq('organization_id', orgId)
-      .eq('role', 'responder'),
+  const [incidentsResult, respondersResult, orgResult, tlsResult] = await Promise.race([
+    Promise.all([
+      supabase
+        .from('incidents')
+        .select(
+          'id, incident_code, emergency_type, status, citizen_address, citizen_lat, citizen_lng, created_at, assigned_responder_id'
+        )
+        .eq('organization_id', orgId)
+        .in('status', ACTIVE_STATUSES)
+        .order('created_at', { ascending: false }),
 
-    supabase
-      .from('organizations')
-      .select('name, logo_url')
-      .eq('id', orgId)
-      .single(),
+      supabase
+        .from('profiles')
+        .select('id, full_name, is_on_duty, last_known_lat, last_known_lng')
+        .eq('organization_id', orgId)
+        .eq('role', 'responder'),
 
-    supabase
-      .from('profiles')
-      .select('id, is_on_duty')
-      .eq('organization_id', orgId)
-      .eq('role', 'team_leader')
-      .is('deleted_at', null),
+      supabase
+        .from('organizations')
+        .select('name, logo_url')
+        .eq('id', orgId)
+        .single(),
+
+      supabase
+        .from('profiles')
+        .select('id, is_on_duty')
+        .eq('organization_id', orgId)
+        .eq('role', 'team_leader')
+        .is('deleted_at', null),
+    ]),
+    tlTimeout,
   ])
 
   const initialIncidents = (incidentsResult.data ?? []) as TLIncident[]

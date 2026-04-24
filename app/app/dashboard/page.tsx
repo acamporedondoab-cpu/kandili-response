@@ -49,6 +49,10 @@ export default async function DashboardPage() {
     .limit(10)
   if (filterByOrg) incQ = incQ.eq('organization_id', orgId!)
 
+  const timeout = new Promise<never>((_, reject) =>
+    setTimeout(() => reject(new Error('Dashboard data fetch timed out. Please try again.')), 8000)
+  )
+
   const [
     { count: activeIncidents },
     { count: enRouteCount },
@@ -56,7 +60,10 @@ export default async function DashboardPage() {
     { count: highCount },
     { data: avgData },
     { data: incidents },
-  ] = await Promise.all([activeQ, enRouteQ, criticalQ, highQ, avgQ, incQ])
+  ] = await Promise.race([
+    Promise.all([activeQ, enRouteQ, criticalQ, highQ, avgQ, incQ]),
+    timeout,
+  ])
 
   const responderIds = Array.from(new Set((incidents ?? []).map(i => i.assigned_responder_id).filter(Boolean))) as string[]
   const { data: responders } = responderIds.length > 0
