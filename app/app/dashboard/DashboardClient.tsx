@@ -1,9 +1,11 @@
 'use client'
 
-import { useState, useRef, useEffect } from 'react'
+import { useState, useRef, useEffect, useMemo } from 'react'
+import { useRouter } from 'next/navigation'
 import dynamic from 'next/dynamic'
 import Image from 'next/image'
 import Link from 'next/link'
+import { createClient } from '../lib/supabase/client'
 import {
   LayoutDashboard, Siren, Settings, Truck,
   Bell, User, ChevronDown, LogOut, Eye,
@@ -119,6 +121,19 @@ export default function DashboardClient({
     document.addEventListener('mousedown', handler)
     return () => document.removeEventListener('mousedown', handler)
   }, [])
+
+  const router = useRouter()
+  const supabase = useMemo(() => createClient(), [])
+
+  useEffect(() => {
+    const channel = supabase
+      .channel('admin-dashboard-realtime')
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'incidents' }, () => {
+        router.refresh()
+      })
+      .subscribe()
+    return () => { supabase.removeChannel(channel) }
+  }, [supabase, router])
 
   const isTL = role === 'team_leader' || role === 'super_admin'
   const isResponder = role === 'responder'
