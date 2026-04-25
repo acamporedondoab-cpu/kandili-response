@@ -1,7 +1,6 @@
 'use client'
 
-import { useState, useRef, useEffect, useMemo } from 'react'
-import { useRouter } from 'next/navigation'
+import { useState, useRef, useEffect } from 'react'
 import dynamic from 'next/dynamic'
 import Image from 'next/image'
 import Link from 'next/link'
@@ -35,7 +34,7 @@ const STATUS_COLOR: Record<string, string> = {
   acknowledged: '#06B6D4',
 }
 
-type Incident = {
+export type Incident = {
   id: string
   incident_code: string
   emergency_type: string
@@ -47,18 +46,12 @@ type Incident = {
   created_at: string
   assigned_responder_id: string | null
   organizations: unknown
-}
-
-type Responder = {
-  id: string
-  full_name: string
-  last_known_lat: number | null
-  last_known_lng: number | null
+  responder_profile: { id: string; full_name: string; last_known_lat: number | null; last_known_lng: number | null } | null
 }
 
 type ViewLivePayload = {
   incident: Incident
-  responder: Responder | null
+  responder: { id: string; full_name: string; last_known_lat: number | null; last_known_lng: number | null } | null
 }
 
 function formatTime(d: Date): string {
@@ -77,35 +70,38 @@ function timeAgo(dateStr: string): string {
   return `${Math.floor(hrs / 24)}d ago`
 }
 
+const INACTIVE_STATUSES = ['resolved', 'closed', 'pending_citizen_confirmation']
+
 export default function DashboardClient({
   fullName,
   email,
   role,
-  activeIncidents,
-  enRouteCount,
-  criticalCount,
-  highCount,
   avgResponseSeconds,
   incidents,
-  responders,
   isAdmin,
 }: {
   fullName: string
   email: string
   role: string
-  activeIncidents: number
-  enRouteCount: number
-  criticalCount: number
-  highCount: number
   avgResponseSeconds: number | null
   incidents: Incident[]
-  responders: Responder[]
   isAdmin: boolean
 }) {
   const [profileOpen, setProfileOpen] = useState(false)
   const [viewLive, setViewLive] = useState<ViewLivePayload | null>(null)
   const [systemTime, setSystemTime] = useState(() => formatTime(new Date()))
+  const [liveIncidents, setLiveIncidents] = useState<Incident[]>(incidents)
   const dropdownRef = useRef<HTMLDivElement>(null)
+
+  const activeCount = liveIncidents.filter(inc => !INACTIVE_STATUSES.includes(inc.status)).length
+  const enRouteCount = liveIncidents.filter(inc => inc.status === 'en_route').length
+  const criticalCount = liveIncidents.filter(inc =>
+    inc.priority_level === 'critical' && !INACTIVE_STATUSES.includes(inc.status)
+  ).length
+  const highCount = liveIncidents.filter(inc =>
+    inc.priority_level === 'high' && !INACTIVE_STATUSES.includes(inc.status)
+  ).length
+  const pendingDispatch = Math.max(0, activeCount - enRouteCount)
 
   useEffect(() => {
     const tick = setInterval(() => setSystemTime(formatTime(new Date())), 60000)
@@ -122,18 +118,72 @@ export default function DashboardClient({
     return () => document.removeEventListener('mousedown', handler)
   }, [])
 
-  const router = useRouter()
-  const supabase = useMemo(() => createClient(), [])
-
   useEffect(() => {
-    const channel = supabase
+    const sub = createClient()
+    let firstSubscribe = true
+
+    async function refetchAll() {
+      const { data } = await sub
+        .from('incidents')
+        .select('id, incident_code, emergency_type, status, priority_level, citizen_address, citizen_lat, citizen_lng, created_at, assigned_responder_id, organizations!organization_id(name), responder_profile:profiles!assigned_responder_id(id, full_name, last_known_lat, last_known_lng)')
+        .order('created_at', { ascending: false })
+        .limit(50)
+      if (data) setLiveIncidents(data as unknown as Incident[])
+    }
+
+    const channel = sub
       .channel('admin-dashboard-realtime')
-      .on('postgres_changes', { event: '*', schema: 'public', table: 'incidents' }, () => {
-        router.refresh()
+      .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'incidents' }, async (payload) => {
+        const inserted = payload.new as Incident
+        setLiveIncidents((prev) => {
+          if (prev.some((inc) => inc.id === inserted.id)) return prev
+          return [{ ...inserted, organizations: null, responder_profile: null }, ...prev].slice(0, 50)
+        })
+        const { data } = await sub
+          .from('incidents')
+          .select('id, incident_code, emergency_type, status, priority_level, citizen_address, citizen_lat, citizen_lng, created_at, assigned_responder_id, organizations!organization_id(name), responder_profile:profiles!assigned_responder_id(id, full_name, last_known_lat, last_known_lng)')
+          .eq('id', inserted.id)
+          .single()
+        if (data) {
+          setLiveIncidents((prev) => prev.map((inc) => inc.id === data.id ? data as unknown as Incident : inc))
+        }
       })
-      .subscribe()
-    return () => { supabase.removeChannel(channel) }
-  }, [supabase, router])
+      .on('postgres_changes', { event: 'UPDATE', schema: 'public', table: 'incidents' }, async (payload) => {
+        const updated = payload.new as Incident
+        setLiveIncidents((prev) => prev.map((inc) => inc.id === updated.id ? { ...inc, ...updated } : inc))
+        if (updated.assigned_responder_id) {
+          const { data } = await sub
+            .from('incidents')
+            .select('id, responder_profile:profiles!assigned_responder_id(id, full_name, last_known_lat, last_known_lng)')
+            .eq('id', updated.id)
+            .single()
+          if (data) {
+            setLiveIncidents((prev) => prev.map((inc) =>
+              inc.id === data.id ? { ...inc, responder_profile: (data as unknown as { responder_profile: Incident['responder_profile'] }).responder_profile } : inc
+            ))
+          }
+        }
+      })
+      .on('postgres_changes', { event: 'DELETE', schema: 'public', table: 'incidents' }, (payload) => {
+        const deleted = payload.old as { id: string }
+        setLiveIncidents((prev) => prev.filter((inc) => inc.id !== deleted.id))
+      })
+      .subscribe((status) => {
+        if (status !== 'SUBSCRIBED') return
+        if (firstSubscribe) { firstSubscribe = false; return }
+        refetchAll()
+      })
+
+    // Poll every 10s — guards against realtime events dropped due to RLS
+    // evaluation limitations on unfiltered postgres_changes subscriptions.
+    const pollId = setInterval(refetchAll, 10000)
+
+    return () => {
+      clearInterval(pollId)
+      sub.removeChannel(channel)
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
 
   const isTL = role === 'team_leader' || role === 'super_admin'
   const isResponder = role === 'responder'
@@ -147,13 +197,8 @@ export default function DashboardClient({
     ? `${Math.floor(avgResponseSeconds / 60).toString().padStart(2, '0')}:${(avgResponseSeconds % 60).toString().padStart(2, '0')} min`
     : '—'
 
-  const pendingDispatch = Math.max(0, activeIncidents - enRouteCount)
-
   function handleViewLive(incident: Incident) {
-    const responder = incident.assigned_responder_id
-      ? (responders.find(r => r.id === incident.assigned_responder_id) ?? null)
-      : null
-    setViewLive({ incident, responder })
+    setViewLive({ incident, responder: incident.responder_profile ?? null })
   }
 
   return (
@@ -353,11 +398,11 @@ export default function DashboardClient({
                 iconColor="#EF4444"
                 borderColor="#EF4444"
                 label="Active Incidents"
-                value={String(activeIncidents)}
-                sub={activeIncidents === 0
+                value={String(activeCount)}
+                sub={activeCount === 0
                   ? 'No active alerts'
                   : `Critical: ${criticalCount} &nbsp;&middot;&nbsp; High: ${highCount}`}
-                pulse={activeIncidents > 0}
+                pulse={activeCount > 0}
               />
               <MetricCard
                 icon={<Radio size={19} />}
@@ -393,7 +438,7 @@ export default function DashboardClient({
                 <div>
                   <h2 style={{ fontSize: 14, fontWeight: 700, color: 'white' }}>Recent Incidents</h2>
                   <p style={{ fontSize: 11.5, color: 'rgba(255,255,255,0.28)', marginTop: 2 }}>
-                    {isAdmin ? 'Last 10 incidents across all organizations' : 'Last 10 incidents in your organization'}
+                    {isAdmin ? 'Last 50 incidents across all organizations' : 'Last 50 incidents in your organization'}
                   </p>
                 </div>
                 {isTL && (
@@ -424,21 +469,21 @@ export default function DashboardClient({
                     </tr>
                   </thead>
                   <tbody>
-                    {incidents.length === 0 && (
+                    {liveIncidents.length === 0 && (
                       <tr>
                         <td colSpan={9} style={{ padding: '48px 24px', textAlign: 'center', color: 'rgba(255,255,255,0.18)', fontSize: 13 }}>
                           No incidents recorded
                         </td>
                       </tr>
                     )}
-                    {incidents.map((inc, i) => {
+                    {liveIncidents.map((inc, i) => {
                       const org = (inc.organizations as { name: string }[] | { name: string } | null)
                       const orgName = Array.isArray(org) ? org[0]?.name : (org as { name: string } | null)?.name
                       const priority = inc.priority_level ?? 'high'
                       const priorityColor = PRIORITY_COLOR[priority] ?? '#F97316'
                       const statusColor = STATUS_COLOR[inc.status] ?? '#6B7280'
                       const responder = inc.assigned_responder_id
-                        ? responders.find(r => r.id === inc.assigned_responder_id)
+                        ? (inc.responder_profile ?? null)
                         : null
                       const isCritical = priority === 'critical'
 
@@ -447,7 +492,7 @@ export default function DashboardClient({
                           key={inc.id}
                           className="dash-row"
                           style={{
-                            borderBottom: i < incidents.length - 1 ? '1px solid rgba(255,255,255,0.04)' : 'none',
+                            borderBottom: i < liveIncidents.length - 1 ? '1px solid rgba(255,255,255,0.04)' : 'none',
                             transition: 'background 0.12s',
                           }}
                         >

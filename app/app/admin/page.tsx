@@ -54,25 +54,24 @@ export default async function AdminPage() {
       .gte('updated_at', todayStart.toISOString()),
     admin
       .from('incidents')
-      .select('id, incident_code, emergency_type, status, citizen_address, citizen_lat, citizen_lng, created_at, organizations(name)')
+      .select('id, incident_code, emergency_type, status, citizen_address, citizen_lat, citizen_lng, created_at, organizations!organization_id(name)')
       .order('created_at', { ascending: false })
       .limit(10),
     admin
       .from('incidents')
-      .select('responder_assigned_at, resolved_at')
+      .select('created_at, arrived_at')
       .in('status', ['resolved', 'closed'])
       .gte('resolved_at', todayStart.toISOString())
-      .not('responder_assigned_at', 'is', null)
-      .not('resolved_at', 'is', null),
+      .not('arrived_at', 'is', null),
   ])
 
   const recentIncidents = (recentIncidentsRaw ?? []) as unknown as RecentIncident[]
 
-  const avgRows = (avgRaw ?? []) as { responder_assigned_at: string; resolved_at: string }[]
+  const avgRows = (avgRaw ?? []) as { created_at: string; arrived_at: string }[]
   let avgResponseLabel = '—'
   if (avgRows.length > 0) {
     const avgMs = avgRows.reduce(
-      (sum, r) => sum + (new Date(r.resolved_at).getTime() - new Date(r.responder_assigned_at).getTime()),
+      (sum, r) => sum + (new Date(r.arrived_at).getTime() - new Date(r.created_at).getTime()),
       0
     ) / avgRows.length
     const mins = Math.round(avgMs / 60000)
@@ -104,7 +103,7 @@ export default async function AdminPage() {
         <StatCard label="Total Members" value={totalMembers ?? 0} color="#34D399" bg="rgba(52,211,153,0.04)" border="rgba(52,211,153,0.18)" sub="Across all orgs" />
         <StatCard label="Active Incidents" value={activeIncidents ?? 0} color="#F87171" bg="rgba(248,113,113,0.04)" border="rgba(248,113,113,0.18)" sub="Pending or in progress" />
         <StatCard label="Resolved Today" value={resolvedToday ?? 0} color="#A78BFA" bg="rgba(167,139,250,0.04)" border="rgba(167,139,250,0.18)" sub="Since midnight" />
-        <StatCard label="Avg Response Time" value={avgResponseLabel} color="#FBBF24" bg="rgba(251,191,36,0.04)" border="rgba(251,191,36,0.18)" sub="Assigned → resolved" />
+        <StatCard label="Avg Response Time" value={avgResponseLabel} color="#FBBF24" bg="rgba(251,191,36,0.04)" border="rgba(251,191,36,0.18)" sub="Report → on scene" />
       </div>
 
       {/* Recent Incidents */}

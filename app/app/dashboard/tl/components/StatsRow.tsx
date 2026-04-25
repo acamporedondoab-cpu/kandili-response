@@ -74,7 +74,7 @@ export default function StatsRow({ activeCount, onDutyCount, tlsOnDutyCount, res
       <StatCard
         label="Avg Response Time"
         value={avgLabel}
-        sub="Assigned → resolved"
+        sub="Report → on scene"
         numberColor="text-amber-400"
         bg="bg-amber-500/5"
         border="border-amber-500/20"

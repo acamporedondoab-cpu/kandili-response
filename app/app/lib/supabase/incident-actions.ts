@@ -25,7 +25,7 @@ export async function toggleTLDutyAction(): Promise<{ success: boolean; isOnDuty
 
 export async function acknowledgeTLAction(incidentId: string): Promise<{ success: boolean; error?: string }> {
   const current = await getCurrentUserWithProfile()
-  if (!current || (current.profile?.role !== 'team_leader' && current.profile?.role !== 'super_admin')) {
+  if (!current || current.profile?.role !== 'team_leader') {
     return { success: false, error: 'Unauthorized' }
   }
 
@@ -102,6 +102,107 @@ export async function updateIncidentStatus(incidentId: string, currentStatus: st
   }
 
   redirect(`/dashboard/responder/incidents/${incidentId}`)
+}
+
+// Web-responder status transitions that stop before resolve.
+// arrived → pending_citizen_confirmation goes through resolveWithReportAction instead.
+const WEB_STATUS_TRANSITIONS: Record<string, string> = {
+  assigned: 'accepted',
+  accepted: 'en_route',
+  en_route: 'arrived',
+}
+
+export async function updateIncidentStatusAction(
+  incidentId: string,
+  currentStatus: string
+): Promise<{ success: boolean; error?: string }> {
+  const current = await getCurrentUserWithProfile()
+  if (!current || current.profile?.role !== 'responder') {
+    return { success: false, error: 'Unauthorized' }
+  }
+
+  const nextStatus = WEB_STATUS_TRANSITIONS[currentStatus]
+  if (!nextStatus) return { success: false, error: `No transition from status: ${currentStatus}` }
+
+  const supabase = createClient()
+  const now = new Date().toISOString()
+
+  const updatePayload: Record<string, string> = { status: nextStatus }
+  const tsField = STATUS_TIMESTAMP_FIELD[nextStatus]
+  if (tsField) updatePayload[tsField] = now
+
+  const { error } = await supabase
+    .from('incidents')
+    .update(updatePayload)
+    .eq('id', incidentId)
+    .eq('assigned_responder_id', current.userId)
+
+  if (error) {
+    console.error('[updateIncidentStatusAction] failed:', error.message)
+    return { success: false, error: 'Failed to update status' }
+  }
+
+  return { success: true }
+}
+
+export async function resolveWithReportAction(
+  incidentId: string,
+  notes: string
+): Promise<{ success: boolean; error?: string }> {
+  const current = await getCurrentUserWithProfile()
+  if (!current || current.profile?.role !== 'responder') {
+    return { success: false, error: 'Unauthorized' }
+  }
+
+  const supabase = createClient()
+  const now = new Date().toISOString()
+
+  const { data: inc } = await supabase
+    .from('incidents')
+    .select('responder_assigned_at, citizen_id, incident_code')
+    .eq('id', incidentId)
+    .single()
+
+  const updatePayload: Record<string, string | number> = {
+    status: 'pending_citizen_confirmation',
+    notes,
+    resolved_by: current.userId,
+  }
+
+  if (inc?.responder_assigned_at) {
+    const diffMs = new Date(now).getTime() - new Date(inc.responder_assigned_at).getTime()
+    updatePayload.response_time_seconds = Math.round(diffMs / 1000)
+  }
+
+  const { error } = await supabase
+    .from('incidents')
+    .update(updatePayload)
+    .eq('id', incidentId)
+    .eq('assigned_responder_id', current.userId)
+
+  if (error) {
+    console.error('[resolveWithReportAction] failed:', error.message)
+    return { success: false, error: 'Failed to submit report' }
+  }
+
+  if (inc?.citizen_id) {
+    const { data: citizenProfile } = await supabase
+      .from('profiles')
+      .select('fcm_token')
+      .eq('id', inc.citizen_id)
+      .single()
+
+    if (citizenProfile?.fcm_token && inc.incident_code) {
+      await sendPush(
+        citizenProfile.fcm_token,
+        '✅ Emergency Handled',
+        `Responder has resolved incident ${inc.incident_code}. Please confirm if your emergency was handled.`,
+        { incident_id: incidentId, type: 'citizen_confirmation' }
+      ).catch((err) => console.error('[resolveWithReportAction] FCM push failed:', err))
+    }
+  }
+
+  return { success: true }
 }
 
 export async function assignResponder(incidentId: string, responderId: string) {

@@ -7,6 +7,7 @@ import type { TLIncident, TLResponder } from './components/IncidentQueueTable'
 const ACTIVE_STATUSES = [
   'pending',
   'assigned',
+  'accepted',
   'en_route',
   'arrived',
   'escalated',

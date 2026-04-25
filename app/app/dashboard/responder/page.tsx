@@ -6,7 +6,10 @@ export default async function ResponderDashboardPage() {
   const current = await getCurrentUserWithProfile()
   requireRole(current, ['responder', 'super_admin'])
 
-  const incident = await getResponderActiveIncident(current!.userId)
+  const incident = await Promise.race([
+    getResponderActiveIncident(current!.userId),
+    new Promise<null>((resolve) => setTimeout(() => resolve(null), 5000)),
+  ])
 
   return (
     <main style={{ maxWidth: 700, margin: '60px auto', padding: '0 16px' }}>

@@ -53,6 +53,7 @@ type Incident = {
   assigned_tl_id: string | null
   assigned_responder_id: string | null
   escalated_at: string | null
+  transfer_reason: string | null
 }
 
 export default function TLIncidentDetailPage() {
@@ -63,14 +64,25 @@ export default function TLIncidentDetailPage() {
   const [loading, setLoading] = useState(true)
   const [ackPending, startAck] = useTransition()
   const [ackMsg, setAckMsg] = useState<{ text: string; ok: boolean } | null>(null)
+  const [userRole, setUserRole] = useState<string | null>(null)
 
   const supabase = useMemo(() => createClient(), [])
 
   useEffect(() => {
     async function load() {
+      const { data: { user } } = await supabase.auth.getUser()
+      if (user) {
+        const { data: prof } = await supabase
+          .from('profiles')
+          .select('role')
+          .eq('id', user.id)
+          .single()
+        setUserRole(prof?.role ?? null)
+      }
+
       const { data } = await supabase
         .from('incidents')
-        .select('id, incident_code, emergency_type, status, priority_level, citizen_address, citizen_lat, citizen_lng, notes, created_at, tl_notified_at, tl_acknowledged_at, acknowledged_by_tl_id, assigned_tl_id, assigned_responder_id, escalated_at')
+        .select('id, incident_code, emergency_type, status, priority_level, citizen_address, citizen_lat, citizen_lng, notes, created_at, tl_notified_at, tl_acknowledged_at, acknowledged_by_tl_id, assigned_tl_id, assigned_responder_id, escalated_at, transfer_reason')
         .eq('id', id)
         .single()
       if (data) {
@@ -121,6 +133,7 @@ export default function TLIncidentDetailPage() {
   const sc = statusColor(incident.status)
   const isAcknowledged = !!incident.tl_acknowledged_at
   const isAssignable = ['pending', 'escalated'].includes(incident.status) && isAcknowledged
+  const canAcknowledge = userRole === 'team_leader'
 
   return (
     <div style={{ minHeight: '100vh', background: '#070B18', color: 'white', fontFamily: 'system-ui, sans-serif' }}>
@@ -159,8 +172,20 @@ export default function TLIncidentDetailPage() {
           </span>
         </div>
 
-        {/* Acknowledge card */}
-        {!isAcknowledged ? (
+        {/* Cross-org transfer notice */}
+        {incident.transfer_reason && (
+          <div style={{
+            display: 'flex', alignItems: 'center', gap: 10,
+            padding: '12px 18px', borderRadius: 12, marginBottom: 24,
+            background: 'rgba(139,92,246,0.08)', border: '1px solid rgba(139,92,246,0.28)',
+          }}>
+            <span style={{ fontSize: 15 }}>↔</span>
+            <p style={{ fontSize: 12.5, color: '#C4B5FD' }}>{incident.transfer_reason}</p>
+          </div>
+        )}
+
+        {/* Acknowledge card — TL only */}
+        {!isAcknowledged && canAcknowledge ? (
           <div style={{
             padding: '18px 20px', borderRadius: 12, marginBottom: 24,
             background: 'rgba(245,158,11,0.08)', border: '1px solid rgba(245,158,11,0.25)',
@@ -195,7 +220,9 @@ export default function TLIncidentDetailPage() {
               </p>
             )}
           </div>
-        ) : (
+        ) : null}
+
+        {isAcknowledged && (
           <div style={{
             display: 'flex', alignItems: 'center', gap: 10,
             padding: '12px 18px', borderRadius: 12, marginBottom: 24,

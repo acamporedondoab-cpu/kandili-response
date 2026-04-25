@@ -1,6 +1,6 @@
 # STATUS — Guardian Dispatch Platform
 
-**Last Updated:** 2026-04-25 (session 15)  
+**Last Updated:** 2026-04-25 (session 17)  
 **Stack:** Next.js 14 · Supabase · Firebase Cloud Messaging · React Native/Expo · TypeScript
 
 ---
@@ -550,6 +550,42 @@ Without `nodeModulesPaths`: `Unable to resolve "react-native"` from components (
 
 ---
 
+## Session 16 — Admin Dashboard Single Source of Truth + Responder Web Page (2026-04-25)
+
+### Admin Dashboard — Single Source of Truth Refactor (COMPLETE) ✅
+
+**Problem:** Admin dashboard metric cards (`liveActiveCount`, `liveEnRouteCount`, `liveCriticalCount`, `liveHighCount`) were separate state from `liveIncidents` array and could diverge when realtime events arrived out of order.
+
+**Fix:**
+- Removed 5 separate state variables from `DashboardClient.tsx`; kept only `liveIncidents: Incident[]`
+- All metrics now derived: `const activeCount = liveIncidents.filter(...)` — impossible to diverge from the table
+- Rewrote realtime `useEffect`: INSERT appends row immediately + async join-fetch to populate org/responder; UPDATE patches row; DELETE removes row — no `router.refresh()`, no re-subscription loop
+- Embedded `responder_profile` (with `id`) into `Incident` type — eliminated separate `liveResponders` lookup state
+- Simplified `page.tsx`: removed 4 separate COUNT queries, added responder join to incidents select, limit increased 10 → 50
+- Exported `Incident` type from `DashboardClient.tsx` for ESLint-safe cast in `page.tsx`
+
+**Bug fixed this change:** `router.refresh()` inside realtime listener was creating a re-subscription loop (high CPU, duplicate listeners). Now zero API calls in the realtime path — all updates are pure in-memory state mutations.
+
+### Responder Incident Detail Page — Full Rebuild (COMPLETE) ✅
+
+**File:** `app/app/dashboard/responder/incidents/[id]/page.tsx`
+- Rebuilt as client component with dark theme matching TL incident page
+- Realtime subscription on individual incident (`id=eq.{id}` filter)
+- Status action buttons: Accept → En Route → Arrived (calls `updateIncidentStatusAction`)
+- Arrived state shows "Submit Report →" button which opens 5W incident report form
+- Report submission calls `resolveWithReportAction` → sets `pending_citizen_confirmation`, computes `response_time_seconds`, sends FCM push to citizen
+
+**New server actions in `incident-actions.ts`:**
+- `updateIncidentStatusAction` — web-responder status transitions (assigned → accepted → en_route → arrived), scoped to `assigned_responder_id = current.userId`
+- `resolveWithReportAction` — sets `pending_citizen_confirmation` + notes + response_time_seconds + FCM push to citizen
+
+### Migrations applied
+
+- `supabase/014_cross_org_transfer.sql` ✅ — adds `original_org_id` and `transfer_reason` to incidents table.
+- `supabase/015_realtime_replica_identity.sql` ✅ — `ALTER TABLE incidents REPLICA IDENTITY FULL`.
+
+---
+
 ## Session 15 — Bug Fixes: Permissions, Cross-Org Transfer, Realtime (2026-04-25)
 
 ### Bug 1 — Admin Could Acknowledge Incidents (FIXED) ✅
@@ -608,15 +644,98 @@ Without `nodeModulesPaths`: `Unable to resolve "react-native"` from components (
 
 ---
 
+---
+
+## Session 17 — Realtime Fixes + Response Time Formula + SOS Duplicate Guard (2026-04-25)
+
+### Bug 1 — All Dashboards Not Reflecting Status Updates in Real Time (FIXED) ✅
+
+**Problem:** After multi-window test (TL, Admin, Responder in separate Chrome windows), all dashboards showed stale statuses after status changes on mobile. INSERT events worked but UPDATE events were not reflected without a manual page refresh.
+
+**Root causes:**
+- Migration `015_realtime_replica_identity.sql` was not yet applied — `REPLICA IDENTITY FULL` is required for Supabase Realtime filtered `postgres_changes` subscriptions to receive UPDATE/DELETE events correctly.
+- All three dashboards (TL, Admin, Responder) were missing a reconnect-refetch pattern — after a WebSocket disconnect/reconnect, missed events were never caught up.
+
+**Fixes applied:**
+- Migration `015` applied (`ALTER TABLE incidents REPLICA IDENTITY FULL`) ✅
+- `TLDashboard.tsx` — added reconnect-refetch: `subscribe()` callback calls `fetchIncidents()` + `fetchResolvedStats()` on reconnect (skips first subscribe via `firstSubscribe` flag)
+- `app/app/dashboard/responder/incidents/[id]/page.tsx` — same reconnect-refetch pattern added to individual incident subscription
+- Admin dashboard — reconnect-refetch added; additionally a **10-second polling fallback** (`setInterval(refetchAll, 10000)`) added to `DashboardClient.tsx` to guard against events silently dropped by Supabase Realtime's RLS evaluation for unfiltered `postgres_changes` subscriptions (admin uses `fn_current_user_role()` SECURITY DEFINER which can fail in the Realtime code path)
+
+**Realtime delay summary after fix:**
+| Dashboard | Mechanism | Expected delay |
+|---|---|---|
+| TL | Filtered WebSocket | 1–3 seconds |
+| Responder | Filtered WebSocket | 1–3 seconds |
+| Admin | Polling (10s) + WebSocket fallback | 0–10 seconds |
+
+---
+
+### Bug 2 — Admin Dashboard Showing 0 Active Incidents (FIXED) ✅
+
+**Problem:** Admin Overview showed 0 active incidents and empty recent incidents table while TL dashboard correctly showed live data.
+
+**Root cause:** Migration `014` added `original_org_id uuid REFERENCES organizations(id)` — a second FK from `incidents` to `organizations`. PostgREST could no longer resolve the ambiguous `organizations(name)` join expression, returning a silent error.
+
+**Fixes applied (3 files):**
+- `app/app/dashboard/page.tsx` — `organizations(name)` → `organizations!organization_id(name)`
+- `app/app/dashboard/DashboardClient.tsx` — same fix in `refetchAll()` join
+- `app/app/admin/page.tsx` — same fix
+
+---
+
+### Bug 3 — Responder Back Button Infinite Loading Loop (FIXED) ✅
+
+**Problem:** Clicking Back on the responder incident detail page navigated to `/dashboard/responder` which would hang forever in a loading skeleton with no error.
+
+**Root cause:** `getResponderActiveIncident()` had no timeout — if the DB query was slow, the server component waited indefinitely.
+
+**Fix:** `app/app/dashboard/responder/page.tsx` — wrapped the query in `Promise.race([getResponderActiveIncident(...), new Promise(resolve => setTimeout(() => resolve(null), 5000))])`. Page now renders "No active incident" at most 5 seconds later.
+
+---
+
+### Average Response Time Formula — Changed to True Response Time (COMPLETE) ✅
+
+**Problem:** Both TL and Admin showed "Avg Response Time" calculated as `responder_assigned_at → resolved_at` (dispatch-to-close), which is resolution time, not response time.
+
+**Fix:**
+- Both dashboards now calculate `created_at → arrived_at` (report to on-scene arrival)
+- Only incidents where responder marked **Arrived** (`arrived_at` is not null) are counted
+- Subtitle label updated from `"Assigned → resolved"` → `"Report → on scene"` on both dashboards
+
+**Files changed:** `app/app/admin/page.tsx`, `app/app/dashboard/tl/components/TLDashboard.tsx`, `app/app/dashboard/tl/components/StatsRow.tsx`
+
+---
+
+### Bug 4 — Citizen Could Submit New SOS While Incident Was Escalated or Awaiting Confirmation (FIXED) ✅
+
+**Problem:** Citizen with an incident in `escalated` or `pending_citizen_confirmation` status could submit a new SOS, creating a duplicate active incident. The mobile UI guard correctly blocked these statuses, but the backend SQL function and DB unique index did not.
+
+**Root cause:** Both `fn_dispatch_sos_atomic` (application-level check) and `uq_incidents_one_open_per_citizen` unique index only listed 6 statuses: `pending, acknowledged, assigned, accepted, en_route, arrived`. Missing: `escalated`, `pending_citizen_confirmation`.
+
+**Fix — migration `016_fix_sos_duplicate_guard.sql` (applied ✅):**
+- Dropped and recreated `uq_incidents_one_open_per_citizen` unique index with all 8 active statuses
+- `fn_dispatch_sos_atomic` active-incident check updated to match — all validation logic preserved, only status list expanded
+
+**All 3 layers now consistent:**
+| Layer | Statuses covered |
+|---|---|
+| Mobile UI (`HomeScreen`) | All 8 ✅ |
+| SQL function check | All 8 ✅ |
+| DB unique index | All 8 ✅ |
+
+---
+
 ## Next Steps
 
 1. ~~End-to-end test: Register → OTP → Home flow on real device~~ ✅ verified working
-2. Profile screen (mobile app — citizen/responder view + edit)
-3. Sprint 3B: Google Maps navigation for responder
-4. Responder distance sorting on TL assignment modal — verify with real GPS coordinates
-5. Set `backup_tl_id` on test org for Level 1 escalation FCM push
-6. Register FCM tokens on real device (requires EAS Build)
-7. Production build prep
+2. ~~Migrations 014 + 015 apply~~ ✅ applied
+3. Profile screen (mobile app — citizen/responder view + edit)
+4. Sprint 3B: Google Maps navigation for responder
+5. Responder distance sorting on TL assignment modal — verify with real GPS coordinates
+6. Set `backup_tl_id` on test org for Level 1 escalation FCM push
+7. Register FCM tokens on real device (requires EAS Build)
+8. Production build prep
 
 ### Completed (previously listed as pending)
 - ✅ Incident History page (`/dashboard/incident-history`) — COMPLETE

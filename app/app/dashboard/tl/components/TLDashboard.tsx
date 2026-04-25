@@ -11,6 +11,7 @@ import type { TLIncident, TLResponder, ResolvedIncident } from './IncidentQueueT
 const ACTIVE_STATUSES = [
   'pending',
   'assigned',
+  'accepted',
   'en_route',
   'arrived',
   'escalated',
@@ -88,13 +89,13 @@ export default function TLDashboard({ orgId, orgName, tlName, tlIsOnDuty, tlsOnD
     const todayData = data.filter((r) => r.resolved_at && new Date(r.resolved_at) >= todayStart)
     setResolvedToday(todayData.length)
 
-    const withBoth = todayData.filter((r) => r.responder_assigned_at && r.resolved_at)
+    const withBoth = todayData.filter((r) => r.arrived_at && r.created_at)
     if (withBoth.length > 0) {
       const avgMs =
         withBoth.reduce(
           (sum, r) =>
             sum +
-            (new Date(r.resolved_at).getTime() - new Date(r.responder_assigned_at).getTime()),
+            (new Date(r.arrived_at).getTime() - new Date(r.created_at).getTime()),
           0
         ) / withBoth.length
       setAvgResponseMins(Math.round(avgMs / 60000))
@@ -106,24 +107,60 @@ export default function TLDashboard({ orgId, orgName, tlName, tlIsOnDuty, tlsOnD
   }, [fetchResolvedStats])
 
   useEffect(() => {
-    // No column filter — column filters require REPLICA IDENTITY FULL on the table.
-    // fetchIncidents() already scopes by organization_id in the SQL query.
-    const channel = supabase
+    const sub = createClient()
+    let firstSubscribe = true
+
+    const channel = sub
       .channel(`tl-incidents-${orgId}`)
       .on(
         'postgres_changes',
-        { event: '*', schema: 'public', table: 'incidents' },
-        () => {
-          fetchIncidents()
+        { event: 'INSERT', schema: 'public', table: 'incidents', filter: `organization_id=eq.${orgId}` },
+        (payload) => {
+          const inserted = payload.new as TLIncident & { organization_id: string }
+          if (inserted.organization_id !== orgId) return
+          if (!ACTIVE_STATUSES.includes(inserted.status)) return
+          setIncidents((prev) => {
+            if (prev.some((inc) => inc.id === inserted.id)) return prev
+            return [inserted, ...prev]
+          })
+        }
+      )
+      .on(
+        'postgres_changes',
+        { event: 'UPDATE', schema: 'public', table: 'incidents', filter: `organization_id=eq.${orgId}` },
+        (payload) => {
+          const updated = payload.new as TLIncident & { organization_id: string }
+          if (updated.organization_id !== orgId) return
+          const inActive = ACTIVE_STATUSES.includes(updated.status)
+          setIncidents((prev) => {
+            const exists = prev.some((inc) => inc.id === updated.id)
+            if (!inActive) return prev.filter((inc) => inc.id !== updated.id)
+            if (exists) return prev.map((inc) => inc.id === updated.id ? { ...inc, ...updated } : inc)
+            return [updated, ...prev]
+          })
           fetchResolvedStats()
         }
       )
-      .subscribe()
+      .on(
+        'postgres_changes',
+        { event: 'DELETE', schema: 'public', table: 'incidents' },
+        (payload) => {
+          const deleted = payload.old as { id: string }
+          setIncidents((prev) => prev.filter((inc) => inc.id !== deleted.id))
+        }
+      )
+      .subscribe((status) => {
+        if (status !== 'SUBSCRIBED') return
+        if (firstSubscribe) { firstSubscribe = false; return }
+        fetchIncidents()
+        fetchResolvedStats()
+      })
 
     return () => {
-      supabase.removeChannel(channel)
+      sub.removeChannel(channel)
     }
-  }, [supabase, orgId, fetchIncidents, fetchResolvedStats])
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
 
   const onDutyCount = responders.filter((r) => r.is_on_duty).length
 
