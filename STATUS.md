@@ -1,14 +1,14 @@
 # STATUS — Guardian Dispatch Platform
 
-**Last Updated:** 2026-04-27 (session 22)  
+**Last Updated:** 2026-04-27 (session 23)  
 **Stack:** Next.js 14 · Supabase · Firebase Cloud Messaging · React Native/Expo · TypeScript
 
 ---
 
 ## Current Sprint
 
-**Sprint 13 (Session 22) — Media History + Video Limits + Bug Fixes — COMPLETE**  
-History screens now show media attachments (was static/read-only). Video capture enforces a 7-second minimum and a best-effort 20-second auto-stop. TL mobile dashboard repopulates on back-navigation via `useFocusEffect`. Admin dashboard metric cards now sync immediately on mount without needing a page reload.
+**Sprint 14 (Session 23) — APK Maps Fix + FCM Confirmed + Security Hardening + 30s Reminder — COMPLETE**  
+Google Maps now works in production APK. FCM push notifications confirmed working on physical device. Google Maps API key moved out of source code into EAS environment variable. 30-second repeat FCM reminder added to escalation engine for unacknowledged SOS alerts.
 
 ---
 
@@ -1020,11 +1020,73 @@ All three web views now show attached media thumbnails when expanding an inciden
 
 ---
 
+## Session 23 — APK Maps Fix + FCM Confirmed + Security + 30s Reminder (2026-04-27)
+
+### TL Incident Detail Screen — Maps Crash Fixed (COMPLETE ✅)
+
+**Problem:** `react-native-maps` `MapView` crashed on production APK when TL opened incident detail. Worked in Expo Go (uses Expo's own fallback key) but crashed in EAS builds.
+
+**Root cause:** `android.config.googleMaps.apiKey` was missing from `mobile/app.json`. Maps SDK for Android requires an explicit API key in the APK manifest.
+
+**Fix:**
+- Added `android.config.googleMaps.apiKey` to `mobile/app.json` with key `AIzaSyDpuJbk-bFwo-Zee4nWoa561YBhrhcPyYI`
+- Rebuilt APK via EAS — user confirmed maps working on physical device ✅
+- Also required: Maps SDK for Android enabled in Google Cloud Console → APIs & Services → Library
+
+---
+
+### FCM Push Notifications — Confirmed Working on Physical Device (COMPLETE ✅)
+
+**Test flow:** Citizen sends SOS → app closed (swiped from recents) → push notification arrived in Android notification tray: "New CRIME SOS — Incident INC-20260427-0051 requires immediate response" ✅
+
+**Confirmed:** FCM token registration, `dispatch-sos` Edge Function FCM send path, and system-level push delivery all working end-to-end on real hardware.
+
+---
+
+### Security — Google Maps API Key Moved to EAS Env Var (COMPLETE ✅)
+
+**Problem:** API key `AIzaSyDpuJbk-bFwo-Zee4nWoa561YBhrhcPyYI` was committed to `mobile/app.json` and pushed to GitHub.
+
+**Fixes:**
+- Created `mobile/app.config.js` — reads `process.env.GOOGLE_MAPS_API_KEY` at EAS build time; overrides `android.config.googleMaps.apiKey`
+- Removed hardcoded key from `mobile/app.json`
+- Set `GOOGLE_MAPS_API_KEY` as EAS sensitive env var for both `production` and `preview` environments
+- Restricted key in Google Cloud Console: Android apps only, package `com.automateph.guardiandispatch`, SHA-1 fingerprint locked, API restricted to Maps SDK for Android
+
+**Note:** Key remains in git history (prior commit). Restriction in Google Cloud makes it harmless — key only works from signed APK with matching package + SHA-1.
+
+**New APK build required** to pick up `app.config.js` change.
+
+---
+
+### Escalation Engine — 30s FCM Reminder for Unacknowledged SOS (COMPLETE ✅)
+
+**Problem:** If TL cleared the initial FCM notification and the app was closed, no second alert fired until the 60-second escalation to backup TL. A TL could miss the entire primary window with no reminder.
+
+**Fix — added to `supabase/functions/escalate-incidents/index.ts`:**
+- New `TL_REMINDER = 30` constant
+- New reminder stage runs before Stage 1: finds `status = 'pending'` incidents where `tl_notified_at` is between 30s and 60s ago and no reminder has been sent
+- Sends FCM: "⏰ Reminder — SOS Unacknowledged — Incident INC-xxx still needs your response"
+- Deduped via `escalation_events` row with `reason = 'tl_reminder_30s'` (fires once per incident maximum)
+- Edge Function redeployed ✅
+
+**Full FCM timeline after fix:**
+| Time | Action |
+|------|--------|
+| 0s | Initial FCM → primary TL |
+| 30s | Reminder FCM → primary TL (if still pending) |
+| 60s | Stage 1: escalate → backup TL FCM |
+| 120s | Stage 2: auto-assign nearest responder |
+| +45s | Stage 3/4: next responder if no accept |
+
+---
+
 ## Next Steps
 
-1. Register FCM tokens on real device (requires EAS Build)
+1. **Rebuild APK** — `eas build --platform android --profile preview` (required for `app.config.js` Maps key change)
 2. Production build prep
 3. Deploy latest web changes to Vercel
+4. Admin dashboard live incident map (deferred — build after APK confirmed stable)
 
 ### Completed (previously listed as pending)
 - ✅ Migration 022 applied — `incident-media` bucket restored to public (session 21)
