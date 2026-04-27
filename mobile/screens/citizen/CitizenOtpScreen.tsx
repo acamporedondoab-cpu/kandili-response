@@ -11,8 +11,7 @@ import {
   KeyboardAvoidingView,
 } from 'react-native'
 import { SafeAreaView } from 'react-native-safe-area-context'
-import { PhoneAuthProvider, signInWithCredential } from 'firebase/auth'
-import { firebaseAuth } from '../../lib/firebase'
+import auth from '@react-native-firebase/auth'
 import { supabase } from '../../lib/supabase/client'
 import * as SecureStore from 'expo-secure-store'
 
@@ -86,8 +85,8 @@ export default function CitizenOtpScreen({
   async function verifyCode(code: string) {
     setLoading(true)
     try {
-      const credential = PhoneAuthProvider.credential(verificationId, code)
-      const result = await signInWithCredential(firebaseAuth, credential)
+      const credential = auth.PhoneAuthProvider.credential(verificationId, code)
+      const result = await auth().signInWithCredential(credential)
       const firebaseUid = result.user.uid
 
       const fnUrl = `${process.env.EXPO_PUBLIC_SUPABASE_URL}/functions/v1/citizen-auth`

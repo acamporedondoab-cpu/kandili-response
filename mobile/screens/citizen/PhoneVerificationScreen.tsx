@@ -1,4 +1,4 @@
-import React, { useRef, useState } from 'react'
+import React, { useState } from 'react'
 import {
   View,
   Text,
@@ -11,9 +11,7 @@ import {
   Platform,
 } from 'react-native'
 import { SafeAreaView } from 'react-native-safe-area-context'
-import { FirebaseRecaptchaVerifierModal } from 'expo-firebase-recaptcha'
-import { PhoneAuthProvider, signInWithCredential } from 'firebase/auth'
-import { firebaseApp, firebaseAuth } from '../../lib/firebase'
+import auth from '@react-native-firebase/auth'
 import { supabase } from '../../lib/supabase/client'
 import { signOut } from '../../lib/auth'
 
@@ -22,7 +20,6 @@ interface Props {
 }
 
 export default function PhoneVerificationScreen({ onVerified }: Props) {
-  const recaptchaRef = useRef<FirebaseRecaptchaVerifierModal>(null)
   const [phone, setPhone] = useState('')
   const [otp, setOtp] = useState('')
   const [verificationId, setVerificationId] = useState<string | null>(null)
@@ -36,9 +33,8 @@ export default function PhoneVerificationScreen({ onVerified }: Props) {
     }
     setLoading(true)
     try {
-      const provider = new PhoneAuthProvider(firebaseAuth)
-      const id = await provider.verifyPhoneNumber(cleaned, recaptchaRef.current!)
-      setVerificationId(id)
+      const confirmation = await auth().signInWithPhoneNumber(cleaned)
+      setVerificationId(confirmation.verificationId)
     } catch (e: any) {
       Alert.alert('Error', e?.message ?? 'Failed to send verification code.')
     } finally {
@@ -50,8 +46,8 @@ export default function PhoneVerificationScreen({ onVerified }: Props) {
     if (!verificationId || otp.trim().length !== 6) return
     setLoading(true)
     try {
-      const credential = PhoneAuthProvider.credential(verificationId, otp.trim())
-      await signInWithCredential(firebaseAuth, credential)
+      const credential = auth.PhoneAuthProvider.credential(verificationId!, otp.trim())
+      await auth().signInWithCredential(credential)
 
       // OTP confirmed — mark as verified in our backend via Edge Function
       const { data: { session } } = await supabase.auth.getSession()
@@ -80,11 +76,6 @@ export default function PhoneVerificationScreen({ onVerified }: Props) {
 
   return (
     <SafeAreaView style={styles.container}>
-      <FirebaseRecaptchaVerifierModal
-        ref={recaptchaRef}
-        firebaseConfig={firebaseApp.options}
-        attemptInvisibleVerification
-      />
       <KeyboardAvoidingView
         behavior={Platform.OS === 'ios' ? 'padding' : undefined}
         style={styles.inner}

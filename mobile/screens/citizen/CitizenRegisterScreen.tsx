@@ -1,4 +1,4 @@
-import React, { useRef, useState } from 'react'
+import React, { useState } from 'react'
 import {
   View,
   Text,
@@ -11,9 +11,7 @@ import {
   KeyboardAvoidingView,
 } from 'react-native'
 import { SafeAreaView } from 'react-native-safe-area-context'
-import { FirebaseRecaptchaVerifierModal } from 'expo-firebase-recaptcha'
-import { PhoneAuthProvider } from 'firebase/auth'
-import { firebaseApp, firebaseAuth } from '../../lib/firebase'
+import auth from '@react-native-firebase/auth'
 
 import LogoHeader from '../../../components/LogoHeader'
 import AvatarBadge from '../../../components/AvatarBadge'
@@ -31,7 +29,6 @@ interface Props {
 }
 
 export default function CitizenRegisterScreen({ onContinue, onSignIn, onStaffLogin }: Props) {
-  const recaptchaRef = useRef<FirebaseRecaptchaVerifierModal>(null)
   const [fullName, setFullName] = useState('')
   const [phoneDigits, setPhoneDigits] = useState('')
   const [email, setEmail] = useState('')
@@ -51,9 +48,8 @@ export default function CitizenRegisterScreen({ onContinue, onSignIn, onStaffLog
     }
     setLoading(true)
     try {
-      const provider = new PhoneAuthProvider(firebaseAuth)
-      const verificationId = await provider.verifyPhoneNumber(fullPhone, recaptchaRef.current!)
-      onContinue({ phone: fullPhone, fullName: fullName.trim(), email: email.trim() }, verificationId)
+      const confirmation = await auth().signInWithPhoneNumber(fullPhone)
+      onContinue({ phone: fullPhone, fullName: fullName.trim(), email: email.trim() }, confirmation.verificationId)
     } catch (e: any) {
       Alert.alert('Error', e?.message ?? 'Failed to send verification code.')
     } finally {
@@ -63,11 +59,6 @@ export default function CitizenRegisterScreen({ onContinue, onSignIn, onStaffLog
 
   return (
     <SafeAreaView style={styles.container}>
-      <FirebaseRecaptchaVerifierModal
-        ref={recaptchaRef}
-        firebaseConfig={firebaseApp.options}
-        attemptInvisibleVerification
-      />
 
       <KeyboardAvoidingView
         behavior={Platform.OS === 'ios' ? 'padding' : 'height'}

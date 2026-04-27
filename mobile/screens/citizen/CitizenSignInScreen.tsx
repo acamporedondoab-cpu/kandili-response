@@ -1,4 +1,4 @@
-import React, { useEffect, useRef, useState } from 'react'
+import React, { useEffect, useState } from 'react'
 import {
   View,
   Text,
@@ -11,9 +11,7 @@ import {
   KeyboardAvoidingView,
 } from 'react-native'
 import { SafeAreaView } from 'react-native-safe-area-context'
-import { FirebaseRecaptchaVerifierModal } from 'expo-firebase-recaptcha'
-import { PhoneAuthProvider } from 'firebase/auth'
-import { firebaseApp, firebaseAuth } from '../../lib/firebase'
+import auth from '@react-native-firebase/auth'
 import * as SecureStore from 'expo-secure-store'
 
 import LogoHeader from '../../../components/LogoHeader'
@@ -28,7 +26,6 @@ interface Props {
 }
 
 export default function CitizenSignInScreen({ onContinue, onRegister, onStaffLogin }: Props) {
-  const recaptchaRef = useRef<FirebaseRecaptchaVerifierModal>(null)
   const [phoneDigits, setPhoneDigits] = useState('')
   const [loading, setLoading] = useState(false)
 
@@ -48,9 +45,8 @@ export default function CitizenSignInScreen({ onContinue, onRegister, onStaffLog
     }
     setLoading(true)
     try {
-      const provider = new PhoneAuthProvider(firebaseAuth)
-      const verificationId = await provider.verifyPhoneNumber(fullPhone, recaptchaRef.current!)
-      onContinue(fullPhone, verificationId)
+      const confirmation = await auth().signInWithPhoneNumber(fullPhone)
+      onContinue(fullPhone, confirmation.verificationId)
     } catch (e: any) {
       Alert.alert('Error', e?.message ?? 'Failed to send verification code.')
     } finally {
@@ -60,11 +56,6 @@ export default function CitizenSignInScreen({ onContinue, onRegister, onStaffLog
 
   return (
     <SafeAreaView style={styles.container}>
-      <FirebaseRecaptchaVerifierModal
-        ref={recaptchaRef}
-        firebaseConfig={firebaseApp.options}
-        attemptInvisibleVerification
-      />
 
       <KeyboardAvoidingView
         behavior={Platform.OS === 'ios' ? 'padding' : 'height'}

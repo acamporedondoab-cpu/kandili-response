@@ -4,8 +4,12 @@
     "slug": "guardian-dispatch",
     "version": "1.0.0",
     "orientation": "portrait",
-    "platforms": ["ios", "android"],
+    "platforms": [
+      "ios",
+      "android"
+    ],
     "plugins": [
+      "@react-native-firebase/app",
       "expo-secure-store",
       [
         "expo-location",
@@ -30,12 +34,21 @@
       }
     },
     "android": {
+      "package": "com.automateph.guardiandispatch",
+      "googleServicesFile": "./google-services.json",
       "permissions": [
         "ACCESS_COARSE_LOCATION",
         "ACCESS_FINE_LOCATION",
         "RECEIVE_BOOT_COMPLETED",
-        "VIBRATE"
+        "VIBRATE",
+        "android.permission.ACCESS_COARSE_LOCATION",
+        "android.permission.ACCESS_FINE_LOCATION"
       ]
+    },
+    "extra": {
+      "eas": {
+        "projectId": "5eb7b2f3-4f64-40e3-b2ff-e2feee4578ae"
+      }
     }
   }
 }
