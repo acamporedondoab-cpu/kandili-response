@@ -1,14 +1,14 @@
 # STATUS — Guardian Dispatch Platform
 
-**Last Updated:** 2026-04-28 (session 24)  
+**Last Updated:** 2026-04-28 (session 26)  
 **Stack:** Next.js 14 · Supabase · Firebase Cloud Messaging · React Native/Expo · TypeScript
 
 ---
 
 ## Current Sprint
 
-**Sprint 15 (Session 24) — Inline TL Assignment + Status Guards + Dead Code Removal + APK + Vercel Deploy — COMPLETE**  
-TL incident detail page now assigns responders inline (no page navigation). Assignment blocked server-side when incident is already in progress. Dead `updateIncidentStatus` function that bypassed citizen confirmation removed. APK build (EAS preview) completed and installed on device. Web deployed to Vercel via GitHub push.
+**Sprint 17 (Session 26) — UX Improvements: Citizen Awareness + Reassign Flow — COMPLETE**  
+Fixed redundant reassign dropdown (current responder no longer appears as a reassign option), added "Assignment Cancelled" FCM push to previously-assigned responder on reassignment, improved citizen ActiveIncidentScreen to show TL name on acknowledgement and responder name on assignment/en_route/arrived, and added "Reported By" citizen name row to TL incident detail page.
 
 ---
 
@@ -1140,11 +1140,130 @@ All three web views now show attached media thumbnails when expanding an inciden
 
 ---
 
+## Session 25 — Web + Mobile Bug Fixes (2026-04-28)
+
+### Bug 1 — Google Maps "This page can't load Google Maps correctly" on Vercel (FIXED ✅)
+
+**Root cause:** `NEXT_PUBLIC_GOOGLE_MAPS_API_KEY` was only in `.env.local` (not set in Vercel environment variables). The Maps JavaScript API key also had no HTTP referrer allowlist — Vercel domains were blocked.
+
+**Fixes:**
+- Added `https://kandili-response.vercel.app/*` and both preview deployment URLs as allowed referrers in Google Cloud Console → Credentials → API key → HTTP referrer restrictions
+- `NEXT_PUBLIC_GOOGLE_MAPS_API_KEY` must be added to Vercel project → Settings → Environment Variables (not fixed in code — env-only)
+- Maps JavaScript API confirmed enabled in Google Cloud Console → APIs & Services → Library
+
+---
+
+### Bug 2 — Video Lightbox Description Blocks Native Play Button (FIXED ✅)
+
+**File:** `mobile/components/MediaGallery.tsx`
+
+**Root cause:** Description was rendered as `position: 'absolute', bottom: 60` inside the video lightbox, sitting directly on top of Android's native video controls (bottom ~60–80px).
+
+**Fix:**
+- Photos keep `position: 'absolute'` overlay (no native controls to block)
+- Videos now render description as a flex child **below** the video wrapper (`lightboxDescBelow` style) — native video controls are fully accessible
+- New style: `lightboxDescBelow: { width: '100%', backgroundColor: 'rgba(0,0,0,0.85)', paddingVertical: 12, paddingHorizontal: 24 }`
+
+---
+
+### Bug 3 — App Drawer Freezes After Navigating Away Mid-Animation (FIXED ✅)
+
+**File:** `mobile/components/AppDrawer.tsx`
+
+**Root cause:** Early return condition read `(translateX as any)._value === -DRAWER_WIDTH` — accessing React Native Animated internals directly. After navigation mid-animation, spring physics leaves `._value` at a floating-point approximation (e.g., `-299.9999`) rather than exactly `-300`, so the condition never matched. Drawer mounted but both `pointerEvents="none"` and the overlay were invisible — no way to open or close.
+
+**Fix:** Replaced `._value` hack with proper `isRendered` React state:
+- On `visible=true`: set `isRendered(true)` immediately, then animate in
+- On `visible=false`: animate out; in `start()` callback, set `isRendered(false)` only when `finished === true`
+- Early return: `if (!isRendered) return null`
+
+---
+
+### Bug 4 — Admin Incident Center Shows 0 Incidents on Browser Back Navigation (FIXED ✅)
+
+**Root cause — two combined bugs:**
+
+1. **`app/app/dashboard/incident-center/[orgId]/page.tsx`** — `ACTIVE_STATUSES` was missing `'accepted'`. Incidents in `accepted` status were excluded from `initialIncidents` entirely.
+
+2. **`app/app/dashboard/tl/components/TLDashboard.tsx`** — `fetchIncidents()` was not called on mount. The component relied entirely on `initialIncidents` from server props. On browser back navigation, Next.js App Router restores a cached page — `initialIncidents` is the stale value from the prior render and the mount effect never refreshed it.
+
+**Fixes:**
+- Added `'accepted'` to `ACTIVE_STATUSES` in `[orgId]/page.tsx`
+- Added `fetchIncidents()` to the mount `useEffect` in `TLDashboard.tsx` (alongside existing `fetchResolvedStats()`) — guarantees a fresh fetch regardless of Next.js cache state
+
+---
+
+### Deployment
+
+- Commit: `402102c` — 5 files changed (STATUS.md, incident-center/[orgId]/page.tsx, TLDashboard.tsx, AppDrawer.tsx, MediaGallery.tsx)
+- Pushed to `master` → Vercel auto-deploy triggered ✅
+
+---
+
+## Session 26 — Citizen Awareness + Reassign UX Fixes (2026-04-28)
+
+### Bug Fix — Redundant Reassign Responder Dropdown (FIXED ✅)
+
+**Problem:** On the TL incident detail page, the "Reassign Responder" dropdown included the currently-assigned responder as an option — redundant and confusing.
+
+**Fix (`app/app/dashboard/tl/incidents/[id]/page.tsx`):**
+- Dropdown now filters `r.id !== incident.assigned_responder_id` — the active responder is excluded from the list
+- No logic change — same assign flow, just the already-assigned responder is no longer selectable
+
+---
+
+### Improvement — "Assignment Cancelled" FCM Notification on Reassign (COMPLETE ✅)
+
+**Problem:** When a TL reassigned an incident to a different responder, the previously-assigned responder received no notification — they were still expecting to respond.
+
+**Fix (`app/app/lib/supabase/incident-actions.ts` — `assignResponderAction`):**
+- Added fetch of `assigned_responder_id` and `incident_code` from existing record before the update
+- After successful update: if `previousResponderId !== responderId`, sends FCM push to previous responder
+- Push content: "Assignment Cancelled — You have been unassigned from incident INC-xxx. Stand by."
+- No extra DB round-trip for `incident_code` — fetched in the same initial select
+
+---
+
+### Improvement — Citizen ActiveIncidentScreen Shows Responder/TL Names (COMPLETE ✅)
+
+**Problem:** Citizen's active incident screen showed only a generic status label ("Waiting for team leader", "Responder assigned", etc.) with no names — citizens had no visibility into who was responding.
+
+**Changes (`mobile/screens/citizen/ActiveIncidentScreen.tsx`):**
+- Changed label "Waiting for team leader" → "Waiting for Responder" (better reflects actual wait)
+- `fetchIncident` query now joins: `tl_profile:profiles!assigned_tl_id(full_name)` and `responder_profile:profiles!assigned_responder_id(full_name)`
+- Added `tlName` and `responderName` state; populated from join results after each fetch
+- Realtime handler changed from inline merge → calls `fetchIncident()` so names always stay fresh on reassignment
+- `statusPersonName` derived from current status:
+  - `acknowledged` → shows TL name
+  - `assigned / accepted / en_route / arrived / pending_citizen_confirmation` → shows responder name
+- Name rendered below status label in the status color (new `statusPerson` style: `fontSize: 14, fontWeight: '700', marginTop: 2`)
+
+**Example visual output:**
+```
+Responder Assigned
+Pat Santos          ← responder name in status color
+ASSIGNED
+```
+
+---
+
+### Improvement — TL Incident Detail Shows Citizen Name (COMPLETE ✅)
+
+**Problem:** TL viewing an incident had no way to know which citizen reported it — "Reported By" field was absent.
+
+**Fix (`app/app/dashboard/tl/incidents/[id]/page.tsx`):**
+- Added `citizen_id` to incident SELECT query
+- Added `citizenName` state; fetched via `profiles.select('full_name').eq('id', citizen_id)` in parallel with TL name lookup
+- Added "Reported By" row in incident info card, shown only when `citizenName` is set; value styled in purple (`#C4B5FD`)
+
+---
+
 ## Next Steps
 
-1. Test APK on device — verify inline assignment flow works end-to-end from mobile
-2. Production build prep
-3. Admin dashboard live incident map (deferred — foundation now in `LiveIncidentMap.tsx`)
+1. Verify Incident Center back-nav bug resolved on live Vercel deployment
+2. Test APK on device — verify App Drawer freeze fix and video lightbox fix
+3. Production build prep
+4. Admin dashboard live incident map (deferred — foundation now in `LiveIncidentMap.tsx`)
 
 ### Completed (previously listed as pending)
 - ✅ Migration 022 applied — `incident-media` bucket restored to public (session 21)

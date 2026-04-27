@@ -27,7 +27,7 @@ interface Props {
 }
 
 const STATUS_LABELS: Record<IncidentStatus, string> = {
-  pending: 'Waiting for team leader',
+  pending: 'Waiting for Responder',
   escalated: 'Escalated — backup team notified',
   acknowledged: 'Team leader acknowledged',
   assigned: 'Responder assigned',
@@ -109,6 +109,8 @@ function getMapRegion(incident: Incident) {
 
 export default function ActiveIncidentScreen({ incidentId, userId, pendingMedia, onBack }: Props) {
   const [incident, setIncident] = useState<Incident | null>(null)
+  const [tlName, setTlName] = useState<string | null>(null)
+  const [responderName, setResponderName] = useState<string | null>(null)
   const [loading, setLoading] = useState(true)
   const [mapExpanded, setMapExpanded] = useState(false)
   const [confirming, setConfirming] = useState(false)
@@ -178,8 +180,8 @@ export default function ActiveIncidentScreen({ incidentId, userId, pendingMedia,
           table: 'incidents',
           filter: `id=eq.${incidentId}`,
         },
-        (payload) => {
-          setIncident((prev) => ({ ...prev, ...payload.new } as Incident))
+        () => {
+          fetchIncident()
         }
       )
       .subscribe()
@@ -192,14 +194,17 @@ export default function ActiveIncidentScreen({ incidentId, userId, pendingMedia,
   async function fetchIncident() {
     const { data, error } = await supabase
       .from('incidents')
-      .select('*')
+      .select('*, tl_profile:profiles!assigned_tl_id(full_name), responder_profile:profiles!assigned_responder_id(full_name)')
       .eq('id', incidentId)
       .single()
 
     if (error) {
       console.error('[ActiveIncidentScreen] fetch error:', error.message)
     } else {
-      setIncident(data as Incident)
+      const { tl_profile, responder_profile, ...incidentData } = data as any
+      setIncident(incidentData as Incident)
+      setTlName((tl_profile as { full_name: string } | null)?.full_name ?? null)
+      setResponderName((responder_profile as { full_name: string } | null)?.full_name ?? null)
     }
     setLoading(false)
   }
@@ -226,6 +231,11 @@ export default function ActiveIncidentScreen({ incidentId, userId, pendingMedia,
   const statusColor = STATUS_COLORS[incident.status] ?? '#6b7280'
   const statusLabel = STATUS_LABELS[incident.status] ?? incident.status
   const eta = getEta(incident)
+
+  const statusPersonName =
+    incident.status === 'acknowledged' ? tlName :
+    ['assigned', 'accepted', 'en_route', 'arrived', 'pending_citizen_confirmation'].includes(incident.status) ? responderName :
+    null
   const showMap =
     !!incident.citizen_lat &&
     !!incident.citizen_lng &&
@@ -271,6 +281,9 @@ export default function ActiveIncidentScreen({ incidentId, userId, pendingMedia,
           <View style={[styles.statusDot, { backgroundColor: statusColor }]} />
           <View style={{ flex: 1 }}>
             <Text style={styles.statusLabel}>{statusLabel}</Text>
+            {statusPersonName ? (
+              <Text style={[styles.statusPerson, { color: statusColor }]}>{statusPersonName}</Text>
+            ) : null}
             <Text style={styles.statusRaw}>{incident.status.replace('_', ' ').toUpperCase()}</Text>
           </View>
         </View>
@@ -489,6 +502,7 @@ const styles = StyleSheet.create({
   },
   statusDot: { width: 12, height: 12, borderRadius: 6 },
   statusLabel: { color: '#fff', fontSize: 15, fontWeight: '600' },
+  statusPerson: { fontSize: 14, fontWeight: '700', marginTop: 2 },
   statusRaw: { color: '#6b7280', fontSize: 12, marginTop: 2, letterSpacing: 1 },
   mapCard: {
     backgroundColor: '#1f2937',

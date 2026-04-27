@@ -111,7 +111,7 @@ export default function DashboardClient({
   const [viewLive, setViewLive] = useState<ViewLivePayload | null>(null)
   const [systemTime, setSystemTime] = useState('')
   const [liveIncidents, setLiveIncidents] = useState<Incident[]>(incidents)
-  const [mapDark, setMapDark] = useState(false)
+  const [mapDark, setMapDark] = useState(true)
   const dropdownRef = useRef<HTMLDivElement>(null)
 
   const activeCount = liveIncidents.filter(inc => !INACTIVE_STATUSES.includes(inc.status)).length

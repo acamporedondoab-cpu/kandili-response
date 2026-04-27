@@ -229,12 +229,15 @@ export async function assignResponderAction(
 
   const { data: existing } = await supabase
     .from('incidents')
-    .select('status')
+    .select('status, assigned_responder_id, incident_code')
     .eq('id', incidentId)
     .single()
   if (!existing || ASSIGN_BLOCKED_STATUSES.includes(existing.status)) {
     return { success: false, error: 'Cannot assign: incident is already in progress or resolved' }
   }
+
+  const previousResponderId = existing.assigned_responder_id ?? null
+  const incidentCode = existing.incident_code
 
   const now = new Date().toISOString()
 
@@ -254,25 +257,37 @@ export async function assignResponderAction(
     return { success: false, error: 'Failed to assign responder' }
   }
 
+  // Notify previously assigned responder they have been unassigned
+  if (previousResponderId && previousResponderId !== responderId) {
+    const { data: prevProfile } = await supabase
+      .from('profiles')
+      .select('fcm_token')
+      .eq('id', previousResponderId)
+      .single()
+    if (prevProfile?.fcm_token) {
+      await sendPush(
+        prevProfile.fcm_token,
+        'Assignment Cancelled',
+        `You have been unassigned from incident ${incidentCode}. Stand by.`,
+        { incident_id: incidentId, type: 'unassignment' }
+      ).catch((err) => console.error('[assignResponderAction] FCM unassign push failed:', err))
+    }
+  }
+
+  // Notify newly assigned responder
   const { data: responderProfile } = await supabase
     .from('profiles')
-    .select('fcm_token, full_name')
+    .select('fcm_token')
     .eq('id', responderId)
     .single()
 
-  const { data: incidentRow } = await supabase
-    .from('incidents')
-    .select('incident_code')
-    .eq('id', incidentId)
-    .single()
-
-  if (responderProfile?.fcm_token && incidentRow?.incident_code) {
+  if (responderProfile?.fcm_token) {
     await sendPush(
       responderProfile.fcm_token,
       '🚨 Incident Assigned',
-      `You have been assigned to incident ${incidentRow.incident_code}`,
+      `You have been assigned to incident ${incidentCode}`,
       { incident_id: incidentId, type: 'assignment' }
-    ).catch((err) => console.error('[assignResponderAction] FCM push failed:', err))
+    ).catch((err) => console.error('[assignResponderAction] FCM assign push failed:', err))
   }
 
   return { success: true }

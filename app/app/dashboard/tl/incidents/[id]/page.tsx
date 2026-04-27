@@ -75,6 +75,7 @@ export default function TLIncidentDetailPage() {
   const { id } = useParams<{ id: string }>()
   const [incident, setIncident] = useState<Incident | null>(null)
   const [ackByName, setAckByName] = useState<string | null>(null)
+  const [citizenName, setCitizenName] = useState<string | null>(null)
   const [loading, setLoading] = useState(true)
   const [ackPending, startAck] = useTransition()
   const [ackMsg, setAckMsg] = useState<{ text: string; ok: boolean } | null>(null)
@@ -111,19 +112,25 @@ export default function TLIncidentDetailPage() {
 
       const { data } = await supabase
         .from('incidents')
-        .select('id, incident_code, emergency_type, status, priority_level, citizen_address, citizen_lat, citizen_lng, notes, created_at, tl_notified_at, tl_acknowledged_at, acknowledged_by_tl_id, assigned_tl_id, assigned_responder_id, escalated_at, transfer_reason')
+        .select('id, incident_code, emergency_type, status, priority_level, citizen_address, citizen_lat, citizen_lng, notes, created_at, tl_notified_at, tl_acknowledged_at, acknowledged_by_tl_id, assigned_tl_id, assigned_responder_id, escalated_at, transfer_reason, citizen_id')
         .eq('id', id)
         .single()
       if (data) {
         setIncident(data as Incident)
+        const lookups = []
         if (data.acknowledged_by_tl_id) {
-          const { data: profile } = await supabase
-            .from('profiles')
-            .select('full_name')
-            .eq('id', data.acknowledged_by_tl_id)
-            .single()
-          setAckByName(profile?.full_name ?? null)
+          lookups.push(
+            supabase.from('profiles').select('full_name').eq('id', data.acknowledged_by_tl_id).single()
+              .then(({ data: p }) => setAckByName(p?.full_name ?? null))
+          )
         }
+        if ((data as any).citizen_id) {
+          lookups.push(
+            supabase.from('profiles').select('full_name').eq('id', (data as any).citizen_id).single()
+              .then(({ data: p }) => setCitizenName(p?.full_name ?? null))
+          )
+        }
+        await Promise.all(lookups)
       }
       setLoading(false)
     }
@@ -304,6 +311,7 @@ export default function TLIncidentDetailPage() {
             Incident Information
           </h2>
           <Row label="Code" value={<span style={{ fontFamily: 'monospace', color: '#00E5FF' }}>{incident.incident_code}</span>} />
+          {citizenName && <Row label="Reported By" value={<span style={{ color: '#C4B5FD' }}>{citizenName}</span>} />}
           <Row label="Type" value={incident.emergency_type.toUpperCase()} />
           <Row label="Location" value={
             <span style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
@@ -347,7 +355,7 @@ export default function TLIncidentDetailPage() {
                   <option value="" disabled style={{ background: '#0D1325' }}>
                     {responders.length === 0 ? 'No responders available' : 'Select responder…'}
                   </option>
-                  {responders.map((r) => (
+                  {responders.filter((r) => r.id !== incident.assigned_responder_id).map((r) => (
                     <option key={r.id} value={r.id} style={{ background: '#0D1325', color: 'white' }}>
                       {r.full_name}{r.is_on_duty ? ' • On Duty' : ' • Off Duty'}
                     </option>
