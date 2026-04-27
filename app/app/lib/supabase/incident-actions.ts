@@ -44,65 +44,14 @@ export async function acknowledgeTLAction(incidentId: string): Promise<{ success
   return { success: true }
 }
 
-const STATUS_TRANSITIONS: Record<string, string> = {
-  assigned: 'accepted',
-  accepted: 'en_route',
-  en_route: 'arrived',
-  arrived: 'resolved',
-}
-
 const STATUS_TIMESTAMP_FIELD: Record<string, string> = {
   en_route: 'en_route_at',
   arrived:  'arrived_at',
   resolved: 'resolved_at',
 }
 
-export async function updateIncidentStatus(incidentId: string, currentStatus: string) {
-  const current = await getCurrentUserWithProfile()
-
-  if (!current || current.profile?.role !== 'responder') {
-    redirect('/dashboard')
-  }
-
-  const nextStatus = STATUS_TRANSITIONS[currentStatus]
-  if (!nextStatus) {
-    throw new Error(`No transition from status: ${currentStatus}`)
-  }
-
-  const supabase = createClient()
-  const now = new Date().toISOString()
-
-  const updatePayload: Record<string, string | number> = { status: nextStatus }
-
-  const tsField = STATUS_TIMESTAMP_FIELD[nextStatus]
-  if (tsField) updatePayload[tsField] = now
-
-  if (nextStatus === 'resolved') {
-    const { data: inc } = await supabase
-      .from('incidents')
-      .select('responder_assigned_at')
-      .eq('id', incidentId)
-      .single()
-
-    if (inc?.responder_assigned_at) {
-      const diffMs = new Date(now).getTime() - new Date(inc.responder_assigned_at).getTime()
-      updatePayload['response_time_seconds'] = Math.round(diffMs / 1000)
-    }
-  }
-
-  const { error } = await supabase
-    .from('incidents')
-    .update(updatePayload)
-    .eq('id', incidentId)
-    .eq('assigned_responder_id', current.userId)
-
-  if (error) {
-    console.error('[updateIncidentStatus] failed:', error.message)
-    throw new Error('Failed to update incident status')
-  }
-
-  redirect(`/dashboard/responder/incidents/${incidentId}`)
-}
+// Statuses where a responder is already in motion or the incident is closed — assignment must be blocked.
+const ASSIGN_BLOCKED_STATUSES = ['en_route', 'arrived', 'pending_citizen_confirmation', 'resolved', 'closed']
 
 // Web-responder status transitions that stop before resolve.
 // arrived → pending_citizen_confirmation goes through resolveWithReportAction instead.
@@ -214,6 +163,15 @@ export async function assignResponder(incidentId: string, responderId: string) {
 
   const supabase = createClient()
 
+  const { data: existing } = await supabase
+    .from('incidents')
+    .select('status')
+    .eq('id', incidentId)
+    .single()
+  if (!existing || ASSIGN_BLOCKED_STATUSES.includes(existing.status)) {
+    throw new Error('Cannot assign: incident is already in progress or resolved')
+  }
+
   const now = new Date().toISOString()
 
   const { error } = await supabase
@@ -268,6 +226,15 @@ export async function assignResponderAction(
   }
 
   const supabase = createClient()
+
+  const { data: existing } = await supabase
+    .from('incidents')
+    .select('status')
+    .eq('id', incidentId)
+    .single()
+  if (!existing || ASSIGN_BLOCKED_STATUSES.includes(existing.status)) {
+    return { success: false, error: 'Cannot assign: incident is already in progress or resolved' }
+  }
 
   const now = new Date().toISOString()
 

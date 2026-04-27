@@ -1,10 +1,10 @@
 'use client'
 
 import { useState, useTransition, useEffect, useMemo } from 'react'
-import { useParams, useRouter } from 'next/navigation'
+import { useParams } from 'next/navigation'
 import Link from 'next/link'
-import { ArrowLeft, CheckCircle, MapPin, AlertTriangle, User, Shield, Video, X } from 'lucide-react'
-import { acknowledgeTLAction } from '../../../../lib/supabase/incident-actions'
+import { ArrowLeft, CheckCircle, MapPin, AlertTriangle, User, Shield, Video, X, ChevronDown } from 'lucide-react'
+import { acknowledgeTLAction, assignResponderAction } from '../../../../lib/supabase/incident-actions'
 import { createClient } from '../../../../lib/supabase/client'
 
 type IncidentMedia = {
@@ -63,9 +63,16 @@ type Incident = {
   transfer_reason: string | null
 }
 
+type Responder = {
+  id: string
+  full_name: string
+  is_on_duty: boolean
+}
+
+const ASSIGN_BLOCKED = ['en_route', 'arrived', 'pending_citizen_confirmation', 'resolved', 'closed']
+
 export default function TLIncidentDetailPage() {
   const { id } = useParams<{ id: string }>()
-  const router = useRouter()
   const [incident, setIncident] = useState<Incident | null>(null)
   const [ackByName, setAckByName] = useState<string | null>(null)
   const [loading, setLoading] = useState(true)
@@ -74,6 +81,10 @@ export default function TLIncidentDetailPage() {
   const [userRole, setUserRole] = useState<string | null>(null)
   const [media, setMedia] = useState<IncidentMedia[]>([])
   const [lightboxUrl, setLightboxUrl] = useState<string | null>(null)
+  const [responders, setResponders] = useState<Responder[]>([])
+  const [selectedResponderId, setSelectedResponderId] = useState('')
+  const [assignPending, startAssign] = useTransition()
+  const [assignMsg, setAssignMsg] = useState<{ text: string; ok: boolean } | null>(null)
 
   const supabase = useMemo(() => createClient(), [])
 
@@ -83,10 +94,19 @@ export default function TLIncidentDetailPage() {
       if (user) {
         const { data: prof } = await supabase
           .from('profiles')
-          .select('role')
+          .select('role, organization_id')
           .eq('id', user.id)
           .single()
         setUserRole(prof?.role ?? null)
+        if (prof?.organization_id) {
+          const { data: respList } = await supabase
+            .from('profiles')
+            .select('id, full_name, is_on_duty')
+            .eq('role', 'responder')
+            .eq('organization_id', prof.organization_id)
+            .order('full_name')
+          setResponders((respList ?? []) as Responder[])
+        }
       }
 
       const { data } = await supabase
@@ -158,8 +178,22 @@ export default function TLIncidentDetailPage() {
 
   const sc = statusColor(incident.status)
   const isAcknowledged = !!incident.tl_acknowledged_at
-  const isAssignable = ['pending', 'escalated'].includes(incident.status) && isAcknowledged
+  const isAssignable = !ASSIGN_BLOCKED.includes(incident.status) && isAcknowledged
   const canAcknowledge = userRole === 'team_leader'
+
+  function handleAssign() {
+    if (!selectedResponderId) return
+    setAssignMsg(null)
+    startAssign(async () => {
+      const res = await assignResponderAction(incident!.id, selectedResponderId)
+      if (res.success) {
+        setIncident((prev) => prev ? { ...prev, assigned_responder_id: selectedResponderId, status: 'assigned' } : prev)
+        setAssignMsg({ text: 'Responder assigned. Notification sent.', ok: true })
+      } else {
+        setAssignMsg({ text: res.error ?? 'Failed to assign', ok: false })
+      }
+    })
+  }
 
   return (
     <div style={{ minHeight: '100vh', background: '#070B18', color: 'white', fontFamily: 'system-ui, sans-serif' }}>
@@ -283,39 +317,81 @@ export default function TLIncidentDetailPage() {
           {incident.escalated_at && <Row label="Escalated At" value={<span style={{ color: '#FCA5A5' }}>{new Date(incident.escalated_at).toLocaleString()}</span>} />}
         </div>
 
-        {/* Assign responder prompt */}
+        {/* Inline assign responder */}
         {isAssignable && (
           <div style={{
-            padding: '16px 20px', borderRadius: 12,
-            background: 'rgba(59,130,246,0.08)', border: '1px solid rgba(59,130,246,0.25)',
+            padding: '18px 20px', borderRadius: 12,
+            background: 'rgba(59,130,246,0.06)', border: '1px solid rgba(59,130,246,0.22)',
           }}>
-            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-              <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                <Shield size={15} color="#93C5FD" />
-                <p style={{ fontSize: 13, fontWeight: 700, color: '#93C5FD' }}>Ready to assign a responder</p>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 14 }}>
+              <Shield size={15} color="#93C5FD" />
+              <p style={{ fontSize: 13, fontWeight: 700, color: '#93C5FD' }}>
+                {incident.assigned_responder_id ? 'Reassign Responder' : 'Assign Responder'}
+              </p>
+            </div>
+
+            <div style={{ display: 'flex', gap: 10, alignItems: 'center' }}>
+              <div style={{ position: 'relative', flex: 1 }}>
+                <select
+                  value={selectedResponderId}
+                  onChange={(e) => setSelectedResponderId(e.target.value)}
+                  disabled={assignPending}
+                  style={{
+                    width: '100%', appearance: 'none',
+                    padding: '9px 36px 9px 14px', borderRadius: 9,
+                    background: 'rgba(255,255,255,0.04)', border: '1px solid rgba(255,255,255,0.14)',
+                    color: selectedResponderId ? 'white' : 'rgba(255,255,255,0.35)',
+                    fontSize: 13, cursor: 'pointer', outline: 'none',
+                  }}
+                >
+                  <option value="" disabled style={{ background: '#0D1325' }}>
+                    {responders.length === 0 ? 'No responders available' : 'Select responder…'}
+                  </option>
+                  {responders.map((r) => (
+                    <option key={r.id} value={r.id} style={{ background: '#0D1325', color: 'white' }}>
+                      {r.full_name}{r.is_on_duty ? ' • On Duty' : ' • Off Duty'}
+                    </option>
+                  ))}
+                </select>
+                <ChevronDown
+                  size={14}
+                  color="rgba(255,255,255,0.35)"
+                  style={{ position: 'absolute', right: 12, top: '50%', transform: 'translateY(-50%)', pointerEvents: 'none' }}
+                />
               </div>
               <button
-                onClick={() => router.push(`/dashboard/tl?assign=${incident.id}`)}
+                onClick={handleAssign}
+                disabled={!selectedResponderId || assignPending}
                 style={{
-                  padding: '8px 18px', borderRadius: 9,
-                  background: 'rgba(59,130,246,0.18)', border: '1px solid rgba(59,130,246,0.35)',
-                  color: '#93C5FD', fontSize: 13, fontWeight: 600, cursor: 'pointer',
+                  flexShrink: 0, padding: '9px 20px', borderRadius: 9,
+                  background: !selectedResponderId || assignPending ? 'rgba(59,130,246,0.08)' : 'rgba(59,130,246,0.22)',
+                  border: '1px solid rgba(59,130,246,0.35)',
+                  color: !selectedResponderId || assignPending ? 'rgba(147,197,253,0.40)' : '#93C5FD',
+                  fontSize: 13, fontWeight: 700,
+                  cursor: !selectedResponderId || assignPending ? 'default' : 'pointer',
+                  whiteSpace: 'nowrap',
                 }}
               >
-                Assign Responder →
+                {assignPending ? 'Assigning…' : 'Assign'}
               </button>
             </div>
+
+            {assignMsg && (
+              <p style={{ marginTop: 10, fontSize: 12, color: assignMsg.ok ? '#34D399' : '#FCA5A5' }}>
+                {assignMsg.text}
+              </p>
+            )}
           </div>
         )}
 
-        {incident.assigned_responder_id && (
+        {incident.assigned_responder_id && ASSIGN_BLOCKED.includes(incident.status) && (
           <div style={{
             display: 'flex', alignItems: 'center', gap: 10,
             padding: '12px 18px', borderRadius: 12, marginTop: 16,
             background: 'rgba(16,185,129,0.08)', border: '1px solid rgba(16,185,129,0.20)',
           }}>
             <User size={15} color="#34D399" />
-            <p style={{ fontSize: 12.5, color: '#34D399' }}>Responder has been assigned to this incident.</p>
+            <p style={{ fontSize: 12.5, color: '#34D399' }}>Responder is on scene — status: {incident.status.replace(/_/g, ' ')}</p>
           </div>
         )}
 

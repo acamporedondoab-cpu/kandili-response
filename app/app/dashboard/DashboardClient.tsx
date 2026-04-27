@@ -13,6 +13,7 @@ import {
 import { logout } from '../lib/auth/actions'
 
 const ViewLiveModal = dynamic(() => import('./ViewLiveModal'), { ssr: false })
+const LiveIncidentMap = dynamic(() => import('./LiveIncidentMap'), { ssr: false })
 
 const PRIORITY_COLOR: Record<string, string> = {
   critical: '#EF4444',
@@ -108,8 +109,9 @@ export default function DashboardClient({
 }) {
   const [profileOpen, setProfileOpen] = useState(false)
   const [viewLive, setViewLive] = useState<ViewLivePayload | null>(null)
-  const [systemTime, setSystemTime] = useState(() => formatTime(new Date()))
+  const [systemTime, setSystemTime] = useState('')
   const [liveIncidents, setLiveIncidents] = useState<Incident[]>(incidents)
+  const [mapDark, setMapDark] = useState(false)
   const dropdownRef = useRef<HTMLDivElement>(null)
 
   const activeCount = liveIncidents.filter(inc => !INACTIVE_STATUSES.includes(inc.status)).length
@@ -123,6 +125,7 @@ export default function DashboardClient({
   const pendingDispatch = Math.max(0, activeCount - enRouteCount)
 
   useEffect(() => {
+    setSystemTime(formatTime(new Date()))
     const tick = setInterval(() => setSystemTime(formatTime(new Date())), 60000)
     return () => clearInterval(tick)
   }, [])
@@ -450,10 +453,71 @@ export default function DashboardClient({
               />
             </div>
 
-            {/* Insights row: 24h chart + type breakdown */}
+            {/* Insights row: live map + charts */}
             <div style={{ display: 'grid', gridTemplateColumns: '1fr 300px', gap: 18, marginBottom: 24 }}>
-              <ActivityChart timeline={timeline} />
-              <TypeBreakdown typeCounts={typeCounts} />
+
+              {/* Live incident map */}
+              <div style={{
+                background: '#0A0F1E',
+                border: '1px solid rgba(255,255,255,0.09)',
+                borderRadius: 14, overflow: 'hidden',
+                height: 420,
+              }}>
+                <div style={{
+                  padding: '14px 20px 10px',
+                  borderBottom: '1px solid rgba(255,255,255,0.07)',
+                  display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+                }}>
+                  <div>
+                    <h2 style={{ fontSize: 13.5, fontWeight: 700, color: 'white', lineHeight: 1 }}>Live Incident Map</h2>
+                    <p style={{ fontSize: 11, color: 'rgba(255,255,255,0.28)', marginTop: 3 }}>Active incidents &amp; responder locations</p>
+                  </div>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+                    {/* Map style toggle */}
+                    <div style={{
+                      display: 'flex', borderRadius: 7, overflow: 'hidden',
+                      border: '1px solid rgba(255,255,255,0.12)',
+                    }}>
+                      {(['Map', 'Dark'] as const).map((mode) => {
+                        const active = (mode === 'Dark') === mapDark
+                        return (
+                          <button
+                            key={mode}
+                            onClick={() => setMapDark(mode === 'Dark')}
+                            style={{
+                              padding: '4px 11px',
+                              fontSize: 11, fontWeight: 600,
+                              border: 'none', cursor: 'pointer',
+                              background: active ? 'rgba(0,229,255,0.15)' : 'transparent',
+                              color: active ? '#00E5FF' : 'rgba(255,255,255,0.35)',
+                            }}
+                          >
+                            {mode}
+                          </button>
+                        )
+                      })}
+                    </div>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                      <span style={{ width: 6, height: 6, borderRadius: '50%', background: '#22C55E', animation: 'live-pulse 2s ease-in-out infinite' }} />
+                      <span style={{ fontSize: 10.5, color: 'rgba(255,255,255,0.35)', fontWeight: 600 }}>LIVE</span>
+                    </div>
+                  </div>
+                </div>
+                <div style={{ height: 'calc(100% - 51px)' }}>
+                  <LiveIncidentMap
+                    incidents={liveIncidents}
+                    onPinClick={handleViewLive}
+                    darkMode={mapDark}
+                  />
+                </div>
+              </div>
+
+              {/* Right column: type breakdown + activity chart stacked */}
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 18 }}>
+                <TypeBreakdown typeCounts={typeCounts} />
+                <ActivityChart timeline={timeline} />
+              </div>
+
             </div>
 
             {/* Incidents table */}
