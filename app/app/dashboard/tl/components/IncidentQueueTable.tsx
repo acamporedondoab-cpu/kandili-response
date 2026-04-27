@@ -1,6 +1,14 @@
 'use client'
 
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
+import { createClient } from '../../../lib/supabase/client'
+
+type IncidentMedia = {
+  id: string
+  media_url: string
+  media_type: 'photo' | 'video'
+  description: string | null
+}
 
 export interface TLIncident {
   id: string
@@ -272,6 +280,26 @@ function ResolvedRow({
     ? (inc.responder_profile?.full_name ?? responderMap[inc.assigned_responder_id] ?? 'Unknown')
     : '—'
   const report = parseReport(inc.notes)
+  const [media, setMedia] = useState<IncidentMedia[]>([])
+  const [lightboxUrl, setLightboxUrl] = useState<string | null>(null)
+
+  useEffect(() => {
+    if (!isExpanded) return
+    const supabase = createClient()
+    supabase
+      .from('incident_media')
+      .select('id, media_url, media_type, description')
+      .eq('incident_id', inc.id)
+      .order('created_at', { ascending: true })
+      .then(({ data }: { data: IncidentMedia[] | null }) => {
+        const rows = data ?? []
+        setMedia(rows.map(r => {
+          if (r.media_url.startsWith('http')) return r
+          const { data: urlData } = supabase.storage.from('incident-media').getPublicUrl(r.media_url)
+          return { ...r, media_url: urlData.publicUrl }
+        }))
+      })
+  }, [isExpanded, inc.id])
 
   return (
     <div>
@@ -404,6 +432,46 @@ function ResolvedRow({
             )}
           </div>
 
+          {/* Attached media */}
+          {media.length > 0 && (
+            <div>
+              <p className="text-xs font-semibold uppercase tracking-widest text-gray-500 mb-2">
+                Attached Media ({media.length})
+              </p>
+              <div className="flex gap-3 flex-wrap">
+                {media.map((item) => (
+                  <div key={item.id} className="flex flex-col gap-1.5" style={{ maxWidth: 100 }}>
+                    {item.media_type === 'photo' ? (
+                      <button
+                        onClick={(e) => { e.stopPropagation(); setLightboxUrl(item.media_url) }}
+                        className="rounded-lg overflow-hidden border border-gray-600 cursor-pointer p-0 bg-transparent"
+                        style={{ width: 90, height: 90 }}
+                      >
+                        {/* eslint-disable-next-line @next/next/no-img-element */}
+                        <img src={item.media_url} alt="" style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
+                      </button>
+                    ) : (
+                      <a
+                        href={item.media_url}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        onClick={(e) => e.stopPropagation()}
+                        className="rounded-lg border border-blue-700/40 bg-blue-900/20 flex flex-col items-center justify-center gap-1.5 no-underline"
+                        style={{ width: 90, height: 90 }}
+                      >
+                        <span className="text-2xl">🎥</span>
+                        <span className="text-xs text-blue-400 font-bold tracking-widest">VIDEO</span>
+                      </a>
+                    )}
+                    {item.description && (
+                      <p className="text-xs text-gray-500 leading-snug" style={{ maxWidth: 90 }}>{item.description}</p>
+                    )}
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+
           {/* PDF Export */}
           <div className="pt-1 flex justify-end">
             <button
@@ -416,6 +484,28 @@ function ResolvedRow({
               ↓ Export PDF
             </button>
           </div>
+        </div>
+      )}
+
+      {/* Lightbox */}
+      {lightboxUrl && (
+        <div
+          style={{ position: 'fixed', inset: 0, zIndex: 2000, background: 'rgba(0,0,0,0.92)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}
+          onClick={() => setLightboxUrl(null)}
+        >
+          {/* eslint-disable-next-line @next/next/no-img-element */}
+          <img
+            src={lightboxUrl}
+            alt=""
+            style={{ maxWidth: '90vw', maxHeight: '85vh', borderRadius: 12, objectFit: 'contain' }}
+            onClick={(e) => e.stopPropagation()}
+          />
+          <button
+            onClick={() => setLightboxUrl(null)}
+            style={{ position: 'absolute', top: 20, right: 20, width: 40, height: 40, borderRadius: '50%', background: 'rgba(255,255,255,0.15)', border: 'none', cursor: 'pointer', color: 'white', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 18 }}
+          >
+            ✕
+          </button>
         </div>
       )}
     </div>
@@ -563,7 +653,7 @@ export default function IncidentQueueTable({ incidents, responders, resolvedInci
                         {inc.citizen_address ?? `${inc.citizen_lat.toFixed(4)}, ${inc.citizen_lng.toFixed(4)}`}
                       </td>
                       <td className="px-4 py-3 text-gray-300">{responderName}</td>
-                      <td className="px-4 py-3 text-gray-500 whitespace-nowrap">
+                      <td className="px-4 py-3 text-gray-500 whitespace-nowrap" suppressHydrationWarning>
                         {getElapsed(inc.created_at)}
                       </td>
                       <td className="px-4 py-3 text-right">

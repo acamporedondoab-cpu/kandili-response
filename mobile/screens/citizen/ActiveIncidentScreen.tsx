@@ -12,11 +12,17 @@ import {
 } from 'react-native'
 import { SafeAreaView } from 'react-native-safe-area-context'
 import MapView, { Marker } from 'react-native-maps'
+import { Feather } from '@expo/vector-icons'
 import { supabase } from '../../lib/supabase/client'
 import type { Incident, IncidentStatus } from '../../types'
+import MediaGallery from '../../components/MediaGallery'
+import MediaCaptureModal from '../../components/MediaCaptureModal'
+import { uploadIncidentMedia, type MediaItem } from '../../lib/media'
 
 interface Props {
   incidentId: string
+  userId: string
+  pendingMedia?: MediaItem[]
   onBack: () => void
 }
 
@@ -101,11 +107,36 @@ function getMapRegion(incident: Incident) {
   return { latitude: cLat, longitude: cLng, latitudeDelta: 0.01, longitudeDelta: 0.01 }
 }
 
-export default function ActiveIncidentScreen({ incidentId, onBack }: Props) {
+export default function ActiveIncidentScreen({ incidentId, userId, pendingMedia, onBack }: Props) {
   const [incident, setIncident] = useState<Incident | null>(null)
   const [loading, setLoading] = useState(true)
   const [mapExpanded, setMapExpanded] = useState(false)
   const [confirming, setConfirming] = useState(false)
+  const [mediaCaptureVisible, setMediaCaptureVisible] = useState(false)
+  const [mediaRefreshKey, setMediaRefreshKey] = useState(0)
+
+  // Auto-upload any media captured before the SOS was dispatched
+  useEffect(() => {
+    if (!pendingMedia || pendingMedia.length === 0) return
+    Promise.all(pendingMedia.map((item) => uploadIncidentMedia(incidentId, userId, item)))
+      .then((results) => {
+        const failed = results.filter((r) => r.error)
+        if (failed.length > 0) {
+          Alert.alert('Upload Failed', `${failed.length} file(s) failed: ${failed[0].error}`)
+        }
+        setMediaRefreshKey((k) => k + 1)
+      })
+      .catch((err) => Alert.alert('Upload Error', String(err)))
+  }, [])
+
+  async function handleAddMedia(item: MediaItem) {
+    setMediaCaptureVisible(false)
+    const result = await uploadIncidentMedia(incidentId, userId, item)
+    if (result.error) {
+      Alert.alert('Upload Failed', result.error)
+    }
+    setMediaRefreshKey((k) => k + 1)
+  }
 
   async function handleConfirmResolution(confirmed: boolean) {
     setConfirming(true)
@@ -305,6 +336,19 @@ export default function ActiveIncidentScreen({ incidentId, onBack }: Props) {
           </View>
         )}
 
+        {/* Media gallery */}
+        <MediaGallery incidentId={incidentId} refreshKey={mediaRefreshKey} />
+
+        {/* Add media button */}
+        <TouchableOpacity
+          style={styles.addMediaBtn}
+          onPress={() => setMediaCaptureVisible(true)}
+          activeOpacity={0.75}
+        >
+          <Feather name="camera" size={16} color="#9ca3af" />
+          <Text style={styles.addMediaBtnText}>Add Photo / Video</Text>
+        </TouchableOpacity>
+
         {incident.status === 'pending_citizen_confirmation' && (
           <View style={styles.confirmationCard}>
             <Text style={styles.confirmationTitle}>Was your emergency handled?</Text>
@@ -349,6 +393,13 @@ export default function ActiveIncidentScreen({ incidentId, onBack }: Props) {
 
         <Text style={styles.realtimeNote}>Updates in real-time</Text>
       </ScrollView>
+
+      {/* Media capture modal */}
+      <MediaCaptureModal
+        visible={mediaCaptureVisible}
+        onConfirm={handleAddMedia}
+        onCancel={() => setMediaCaptureVisible(false)}
+      />
 
       {/* Fullscreen map modal */}
       {showMap && mapRegion && (
@@ -537,6 +588,22 @@ const styles = StyleSheet.create({
   resolvedText: { color: '#34d399', fontSize: 16, fontWeight: '700' },
   resolvedSub: { color: '#6ee7b7', fontSize: 13, marginTop: 4 },
   realtimeNote: { color: '#4b5563', fontSize: 12, textAlign: 'center', marginTop: 8 },
+  addMediaBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 8,
+    paddingVertical: 12,
+    borderRadius: 10,
+    borderWidth: 1,
+    borderColor: '#374151',
+    borderStyle: 'dashed',
+  },
+  addMediaBtnText: {
+    color: '#9ca3af',
+    fontSize: 14,
+    fontWeight: '600',
+  },
   errorText: { color: '#9ca3af', fontSize: 16, textAlign: 'center', marginBottom: 16 },
   // Fullscreen modal
   fullscreenContainer: { flex: 1, backgroundColor: '#000' },

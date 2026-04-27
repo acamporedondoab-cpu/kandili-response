@@ -10,6 +10,7 @@ import {
 import { SafeAreaView } from 'react-native-safe-area-context'
 import { supabase } from '../../lib/supabase/client'
 import type { Incident } from '../../types'
+import MediaGallery from '../../components/MediaGallery'
 
 interface Props {
   userId: string
@@ -124,6 +125,8 @@ export default function CitizenHistoryScreen({ userId, onBack }: Props) {
             <Text style={styles.unconfirmedBadgeText}>⚠ Closed without your response</Text>
           </View>
         )}
+
+        <MediaGallery incidentId={item.id} />
       </View>
     )
   }

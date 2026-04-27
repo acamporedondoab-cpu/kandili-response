@@ -8,7 +8,7 @@ import { createClient } from '../lib/supabase/client'
 import {
   LayoutDashboard, Siren, Settings, Truck,
   Bell, User, ChevronDown, LogOut, Eye,
-  Radio, Clock, AlertTriangle, ChevronRight, History,
+  Radio, Clock, AlertTriangle, ChevronRight, History, CheckCircle2,
 } from 'lucide-react'
 import { logout } from '../lib/auth/actions'
 
@@ -72,6 +72,19 @@ function timeAgo(dateStr: string): string {
 
 const INACTIVE_STATUSES = ['resolved', 'closed', 'pending_citizen_confirmation']
 
+const TYPE_COLORS: Record<string, string> = {
+  crime: '#3B82F6',
+  medical: '#EF4444',
+  fire: '#F97316',
+  rescue: '#10B981',
+  flood: '#06B6D4',
+  accident: '#F59E0B',
+}
+
+const TYPE_LABELS: Record<string, string> = {
+  crime: 'Police',
+}
+
 export default function DashboardClient({
   fullName,
   email,
@@ -79,6 +92,9 @@ export default function DashboardClient({
   avgResponseSeconds,
   incidents,
   isAdmin,
+  resolvedToday,
+  timeline,
+  typeCounts,
 }: {
   fullName: string
   email: string
@@ -86,6 +102,9 @@ export default function DashboardClient({
   avgResponseSeconds: number | null
   incidents: Incident[]
   isAdmin: boolean
+  resolvedToday: number
+  timeline: { hour: number; count: number }[]
+  typeCounts: { type: string; count: number }[]
 }) {
   const [profileOpen, setProfileOpen] = useState(false)
   const [viewLive, setViewLive] = useState<ViewLivePayload | null>(null)
@@ -120,16 +139,17 @@ export default function DashboardClient({
 
   useEffect(() => {
     const sub = createClient()
-    let firstSubscribe = true
 
     async function refetchAll() {
       const { data } = await sub
         .from('incidents')
         .select('id, incident_code, emergency_type, status, priority_level, citizen_address, citizen_lat, citizen_lng, created_at, assigned_responder_id, organizations!organization_id(name), responder_profile:profiles!assigned_responder_id(id, full_name, last_known_lat, last_known_lng)')
         .order('created_at', { ascending: false })
-        .limit(50)
+        .limit(10)
       if (data) setLiveIncidents(data as unknown as Incident[])
     }
+
+    refetchAll()
 
     const channel = sub
       .channel('admin-dashboard-realtime')
@@ -137,7 +157,7 @@ export default function DashboardClient({
         const inserted = payload.new as Incident
         setLiveIncidents((prev) => {
           if (prev.some((inc) => inc.id === inserted.id)) return prev
-          return [{ ...inserted, organizations: null, responder_profile: null }, ...prev].slice(0, 50)
+          return [{ ...inserted, organizations: null, responder_profile: null }, ...prev].slice(0, 10)
         })
         const { data } = await sub
           .from('incidents')
@@ -169,9 +189,7 @@ export default function DashboardClient({
         setLiveIncidents((prev) => prev.filter((inc) => inc.id !== deleted.id))
       })
       .subscribe((status) => {
-        if (status !== 'SUBSCRIBED') return
-        if (firstSubscribe) { firstSubscribe = false; return }
-        refetchAll()
+        if (status === 'SUBSCRIBED') refetchAll()
       })
 
     // Poll every 10s — guards against realtime events dropped due to RLS
@@ -392,7 +410,7 @@ export default function DashboardClient({
           <main style={{ padding: '34px 36px', flex: 1 }}>
 
             {/* Metric cards */}
-            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 18, marginBottom: 36 }}>
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 18, marginBottom: 24 }}>
               <MetricCard
                 icon={<AlertTriangle size={19} />}
                 iconColor="#EF4444"
@@ -422,6 +440,20 @@ export default function DashboardClient({
                 value={avgDisplay}
                 sub={avgResponseSeconds ? 'Target: &lt; 7 min' : 'No data yet'}
               />
+              <MetricCard
+                icon={<CheckCircle2 size={19} />}
+                iconColor="#22C55E"
+                borderColor="#22C55E"
+                label="Resolved Today"
+                value={String(resolvedToday)}
+                sub={resolvedToday === 0 ? 'No resolutions yet' : `${resolvedToday} incident${resolvedToday === 1 ? '' : 's'} closed`}
+              />
+            </div>
+
+            {/* Insights row: 24h chart + type breakdown */}
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 300px', gap: 18, marginBottom: 24 }}>
+              <ActivityChart timeline={timeline} />
+              <TypeBreakdown typeCounts={typeCounts} />
             </div>
 
             {/* Incidents table */}
@@ -438,7 +470,7 @@ export default function DashboardClient({
                 <div>
                   <h2 style={{ fontSize: 14, fontWeight: 700, color: 'white' }}>Recent Incidents</h2>
                   <p style={{ fontSize: 11.5, color: 'rgba(255,255,255,0.28)', marginTop: 2 }}>
-                    {isAdmin ? 'Last 50 incidents across all organizations' : 'Last 50 incidents in your organization'}
+                    {isAdmin ? 'Last 10 incidents across all organizations' : 'Last 10 incidents in your organization'}
                   </p>
                 </div>
                 {isTL && (
@@ -572,6 +604,106 @@ export default function DashboardClient({
         )}
       </div>
     </>
+  )
+}
+
+function ActivityChart({ timeline }: { timeline: { hour: number; count: number }[] }) {
+  const maxCount = Math.max(...timeline.map((b) => b.count), 1)
+  const total = timeline.reduce((s, b) => s + b.count, 0)
+  const now = new Date()
+
+  return (
+    <div style={{
+      background: '#0A0F1E', border: '1px solid rgba(255,255,255,0.09)',
+      borderRadius: 14, padding: '20px 24px',
+    }}>
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 20 }}>
+        <div>
+          <h2 style={{ fontSize: 14, fontWeight: 700, color: 'white' }}>24-Hour Activity</h2>
+          <p style={{ fontSize: 11.5, color: 'rgba(255,255,255,0.28)', marginTop: 2 }}>Incident volume by hour</p>
+        </div>
+        <span style={{ fontSize: 11, color: 'rgba(255,255,255,0.30)', fontVariantNumeric: 'tabular-nums' }}>
+          {total} incident{total !== 1 ? 's' : ''}
+        </span>
+      </div>
+
+      <div style={{ display: 'flex', alignItems: 'flex-end', gap: 3, height: 80 }}>
+        {timeline.map((bucket, i) => {
+          const barH = bucket.count === 0 ? 4 : Math.max(6, Math.round((bucket.count / maxCount) * 72))
+          const isNewest = i === 23
+          const opacity = bucket.count === 0 ? 0.12 : 0.25 + (bucket.count / maxCount) * 0.65
+          return (
+            <div
+              key={i}
+              title={`${bucket.count} incident${bucket.count !== 1 ? 's' : ''}`}
+              style={{
+                flex: 1, height: barH, borderRadius: 3, alignSelf: 'flex-end', cursor: 'default',
+                background: isNewest
+                  ? 'rgba(0,229,255,0.85)'
+                  : `rgba(0,229,255,${opacity})`,
+              }}
+            />
+          )
+        })}
+      </div>
+
+      <div style={{ display: 'flex', justifyContent: 'space-between', marginTop: 8 }}>
+        {[24, 18, 12, 6, 0].map((hoursAgo) => {
+          const t = new Date(now.getTime() - hoursAgo * 3600000)
+          const h = t.getHours()
+          const ampm = h >= 12 ? 'PM' : 'AM'
+          const h12 = h % 12 || 12
+          return (
+            <span key={hoursAgo} style={{ fontSize: 9.5, color: 'rgba(255,255,255,0.25)', fontVariantNumeric: 'tabular-nums' }}>
+              {hoursAgo === 0 ? 'Now' : `${h12}${ampm}`}
+            </span>
+          )
+        })}
+      </div>
+    </div>
+  )
+}
+
+function TypeBreakdown({ typeCounts }: { typeCounts: { type: string; count: number }[] }) {
+  const total = typeCounts.reduce((s, t) => s + t.count, 0)
+
+  return (
+    <div style={{
+      background: '#0A0F1E', border: '1px solid rgba(255,255,255,0.09)',
+      borderRadius: 14, padding: '20px 24px',
+    }}>
+      <div style={{ marginBottom: 16 }}>
+        <h2 style={{ fontSize: 14, fontWeight: 700, color: 'white' }}>By Type</h2>
+        <p style={{ fontSize: 11.5, color: 'rgba(255,255,255,0.28)', marginTop: 2 }}>Last 24 hours</p>
+      </div>
+
+      {typeCounts.length === 0 ? (
+        <p style={{ fontSize: 12, color: 'rgba(255,255,255,0.20)', textAlign: 'center', padding: '20px 0' }}>
+          No incidents in 24h
+        </p>
+      ) : (
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+          {typeCounts.map(({ type, count }) => {
+            const color = TYPE_COLORS[type.toLowerCase()] ?? '#6B7280'
+            const pct = total > 0 ? Math.round((count / total) * 100) : 0
+            return (
+              <div key={type}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 5 }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 7 }}>
+                    <div style={{ width: 8, height: 8, borderRadius: '50%', background: color, flexShrink: 0 }} />
+                    <span style={{ fontSize: 12.5, color: 'rgba(255,255,255,0.65)', textTransform: 'capitalize' }}>{TYPE_LABELS[type.toLowerCase()] ?? type}</span>
+                  </div>
+                  <span style={{ fontSize: 12, fontWeight: 700, color: 'white' }}>{count}</span>
+                </div>
+                <div style={{ height: 4, borderRadius: 2, background: 'rgba(255,255,255,0.07)' }}>
+                  <div style={{ height: '100%', borderRadius: 2, background: color, width: `${pct}%` }} />
+                </div>
+              </div>
+            )
+          })}
+        </div>
+      )}
+    </div>
   )
 }
 

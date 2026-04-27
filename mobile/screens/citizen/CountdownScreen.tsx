@@ -9,7 +9,7 @@ import {
 } from 'react-native'
 import { SafeAreaView } from 'react-native-safe-area-context'
 import * as Haptics from 'expo-haptics'
-import { getCurrentLocation } from '../../lib/location'
+import { getCurrentLocation, getBarangay } from '../../lib/location'
 import { supabase } from '../../lib/supabase/client'
 import type { EmergencyType } from '../../types'
 
@@ -54,7 +54,16 @@ export default function CountdownScreen({ emergencyType, onDispatched, onCancell
       return
     }
 
-    const { data: sessionData } = await supabase.auth.getSession()
+    // Fetch auth token and barangay in parallel — barangay has 2s timeout
+    // If barangay times out, dispatch proceeds and falls back to distance matching
+    const [{ data: sessionData }, barangay] = await Promise.all([
+      supabase.auth.getSession(),
+      Promise.race([
+        getBarangay(location.lat, location.lng),
+        new Promise<null>((resolve) => setTimeout(() => resolve(null), 2000)),
+      ]),
+    ])
+
     const token = sessionData.session?.access_token
     if (!token || cancelled.current) {
       onCancelled()
@@ -66,6 +75,7 @@ export default function CountdownScreen({ emergencyType, onDispatched, onCancell
         lat: location.lat,
         lng: location.lng,
         emergency_type: emergencyType,
+        barangay: barangay ?? undefined,
       },
     })
 

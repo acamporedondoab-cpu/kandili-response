@@ -1,11 +1,19 @@
 'use client'
 
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import { useRouter } from 'next/navigation'
 import Image from 'next/image'
 import Link from 'next/link'
 import { LayoutDashboard, Siren, Settings, History, ChevronLeft, ChevronRight, Search, ChevronDown } from 'lucide-react'
+import { createClient } from '../../lib/supabase/client'
 import type { ResolvedIncident } from '../tl/components/IncidentQueueTable'
+
+type IncidentMedia = {
+  id: string
+  media_url: string
+  media_type: 'photo' | 'video'
+  description: string | null
+}
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -165,6 +173,26 @@ function IncidentRow({
     ? (joinedName ?? responderMap[inc.assigned_responder_id] ?? 'Unknown')
     : '—'
   const report = parseReport(inc.notes)
+  const [media, setMedia] = useState<IncidentMedia[]>([])
+  const [lightboxUrl, setLightboxUrl] = useState<string | null>(null)
+
+  useEffect(() => {
+    if (!isExpanded) return
+    const supabase = createClient()
+    supabase
+      .from('incident_media')
+      .select('id, media_url, media_type, description')
+      .eq('incident_id', inc.id)
+      .order('created_at', { ascending: true })
+      .then(({ data }: { data: IncidentMedia[] | null }) => {
+        const rows = data ?? []
+        setMedia(rows.map(r => {
+          if (r.media_url.startsWith('http')) return r
+          const { data: urlData } = supabase.storage.from('incident-media').getPublicUrl(r.media_url)
+          return { ...r, media_url: urlData.publicUrl }
+        }))
+      })
+  }, [isExpanded, inc.id])
 
   return (
     <div style={{ borderBottom: '1px solid rgba(255,255,255,0.04)' }}>
@@ -304,6 +332,56 @@ function IncidentRow({
             <p style={{ fontSize: 12.5, color: 'rgba(255,255,255,0.22)', fontStyle: 'italic' }}>No notes recorded</p>
           )}
 
+          {/* Attached media */}
+          {media.length > 0 && (
+            <div style={{ marginTop: 18 }}>
+              <p style={{ fontSize: 10, fontWeight: 700, letterSpacing: '0.10em', textTransform: 'uppercase', color: 'rgba(255,255,255,0.30)', marginBottom: 10 }}>
+                Attached Media ({media.length})
+              </p>
+              <div style={{ display: 'flex', flexWrap: 'wrap', gap: 12 }}>
+                {media.map((item) => (
+                  <div key={item.id} style={{ display: 'flex', flexDirection: 'column', gap: 6, maxWidth: 110 }}>
+                    {item.media_type === 'photo' ? (
+                      <button
+                        onClick={(e) => { e.stopPropagation(); setLightboxUrl(item.media_url) }}
+                        style={{
+                          width: 96, height: 96, borderRadius: 8, overflow: 'hidden',
+                          border: '1px solid rgba(255,255,255,0.12)', padding: 0, cursor: 'pointer',
+                          background: 'none',
+                        }}
+                      >
+                        {/* eslint-disable-next-line @next/next/no-img-element */}
+                        <img src={item.media_url} alt="" style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
+                      </button>
+                    ) : (
+                      <a
+                        href={item.media_url}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        onClick={(e) => e.stopPropagation()}
+                        style={{
+                          width: 96, height: 96, borderRadius: 8,
+                          border: '1px solid rgba(59,130,246,0.30)',
+                          background: 'rgba(59,130,246,0.08)',
+                          display: 'flex', flexDirection: 'column', alignItems: 'center',
+                          justifyContent: 'center', gap: 6, textDecoration: 'none',
+                        }}
+                      >
+                        <span style={{ fontSize: 24 }}>🎥</span>
+                        <span style={{ fontSize: 9, color: '#3B82F6', fontWeight: 700, letterSpacing: 1 }}>VIDEO</span>
+                      </a>
+                    )}
+                    {item.description && (
+                      <p style={{ fontSize: 11, color: 'rgba(255,255,255,0.40)', lineHeight: 1.4, maxWidth: 96 }}>
+                        {item.description}
+                      </p>
+                    )}
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+
           {/* PDF Export */}
           <div style={{ display: 'flex', justifyContent: 'flex-end', marginTop: 14 }}>
             <button
@@ -327,6 +405,33 @@ function IncidentRow({
               ↓ Export PDF
             </button>
           </div>
+        </div>
+      )}
+
+      {/* Lightbox */}
+      {lightboxUrl && (
+        <div
+          style={{ position: 'fixed', inset: 0, zIndex: 2000, background: 'rgba(0,0,0,0.92)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}
+          onClick={() => setLightboxUrl(null)}
+        >
+          {/* eslint-disable-next-line @next/next/no-img-element */}
+          <img
+            src={lightboxUrl}
+            alt=""
+            style={{ maxWidth: '90vw', maxHeight: '85vh', borderRadius: 12, objectFit: 'contain' }}
+            onClick={(e) => e.stopPropagation()}
+          />
+          <button
+            onClick={() => setLightboxUrl(null)}
+            style={{
+              position: 'absolute', top: 20, right: 20, width: 40, height: 40,
+              borderRadius: '50%', background: 'rgba(255,255,255,0.15)', border: 'none',
+              cursor: 'pointer', color: 'white', display: 'flex', alignItems: 'center',
+              justifyContent: 'center', fontSize: 18,
+            }}
+          >
+            ✕
+          </button>
         </div>
       )}
     </div>

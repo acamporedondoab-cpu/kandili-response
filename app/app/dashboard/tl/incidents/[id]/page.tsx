@@ -3,9 +3,16 @@
 import { useState, useTransition, useEffect, useMemo } from 'react'
 import { useParams, useRouter } from 'next/navigation'
 import Link from 'next/link'
-import { ArrowLeft, CheckCircle, MapPin, AlertTriangle, User, Shield } from 'lucide-react'
+import { ArrowLeft, CheckCircle, MapPin, AlertTriangle, User, Shield, Video, X } from 'lucide-react'
 import { acknowledgeTLAction } from '../../../../lib/supabase/incident-actions'
 import { createClient } from '../../../../lib/supabase/client'
+
+type IncidentMedia = {
+  id: string
+  media_url: string
+  media_type: 'photo' | 'video'
+  description: string | null
+}
 
 function statusColor(status: string) {
   switch (status) {
@@ -65,6 +72,8 @@ export default function TLIncidentDetailPage() {
   const [ackPending, startAck] = useTransition()
   const [ackMsg, setAckMsg] = useState<{ text: string; ok: boolean } | null>(null)
   const [userRole, setUserRole] = useState<string | null>(null)
+  const [media, setMedia] = useState<IncidentMedia[]>([])
+  const [lightboxUrl, setLightboxUrl] = useState<string | null>(null)
 
   const supabase = useMemo(() => createClient(), [])
 
@@ -99,6 +108,23 @@ export default function TLIncidentDetailPage() {
       setLoading(false)
     }
     load()
+
+    // Fetch media separately (no await — non-blocking)
+    supabase
+      .from('incident_media')
+      .select('id, media_url, media_type, description')
+      .eq('incident_id', id)
+      .order('created_at', { ascending: true })
+      .then(({ data }) => {
+        const rows = (data ?? []) as IncidentMedia[]
+        setMedia(rows.map(r => {
+          if (r.media_url.startsWith('http')) return r
+          const { data: urlData } = supabase.storage
+            .from('incident-media')
+            .getPublicUrl(r.media_url)
+          return { ...r, media_url: urlData.publicUrl }
+        }))
+      })
   }, [id, supabase])
 
   function handleAcknowledge() {
@@ -293,7 +319,91 @@ export default function TLIncidentDetailPage() {
           </div>
         )}
 
+        {/* Attached media */}
+        {media.length > 0 && (
+          <div style={{
+            background: '#0A0F1E', border: '1px solid rgba(255,255,255,0.08)',
+            borderRadius: 14, padding: '20px 24px', marginTop: 20,
+          }}>
+            <p style={{ fontSize: 12, fontWeight: 700, color: 'rgba(255,255,255,0.30)', textTransform: 'uppercase', letterSpacing: '0.10em', marginBottom: 16 }}>
+              Attached Media ({media.length})
+            </p>
+            <div style={{ display: 'flex', gap: 12, flexWrap: 'wrap' }}>
+              {media.map((item) => (
+                <div key={item.id} style={{ display: 'flex', flexDirection: 'column', gap: 6, maxWidth: 110 }}>
+                  {item.media_type === 'photo' ? (
+                    <button
+                      onClick={() => setLightboxUrl(item.media_url)}
+                      style={{
+                        width: 100, height: 100, borderRadius: 8, overflow: 'hidden',
+                        border: '1px solid rgba(255,255,255,0.12)', padding: 0, cursor: 'pointer',
+                        background: 'none',
+                      }}
+                    >
+                      {/* eslint-disable-next-line @next/next/no-img-element */}
+                      <img src={item.media_url} alt="" style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
+                    </button>
+                  ) : (
+                    <a
+                      href={item.media_url}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      style={{
+                        width: 100, height: 100, borderRadius: 8,
+                        border: '1px solid rgba(59,130,246,0.30)',
+                        background: 'rgba(59,130,246,0.08)',
+                        display: 'flex', flexDirection: 'column', alignItems: 'center',
+                        justifyContent: 'center', gap: 6, textDecoration: 'none',
+                      }}
+                    >
+                      <Video size={24} color="#3B82F6" />
+                      <span style={{ fontSize: 9, color: '#3B82F6', fontWeight: 700, letterSpacing: 1 }}>VIDEO</span>
+                    </a>
+                  )}
+                  {item.description && (
+                    <p style={{ fontSize: 11, color: 'rgba(255,255,255,0.45)', lineHeight: 1.4, maxWidth: 100 }}>
+                      {item.description}
+                    </p>
+                  )}
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
+
       </main>
+
+      {/* Lightbox */}
+      {lightboxUrl && (
+        <div
+          style={{
+            position: 'fixed', inset: 0, zIndex: 2000,
+            background: 'rgba(0,0,0,0.92)',
+            display: 'flex', alignItems: 'center', justifyContent: 'center',
+          }}
+          onClick={() => setLightboxUrl(null)}
+        >
+          {/* eslint-disable-next-line @next/next/no-img-element */}
+          <img
+            src={lightboxUrl}
+            alt=""
+            style={{ maxWidth: '90vw', maxHeight: '85vh', borderRadius: 12, objectFit: 'contain' }}
+            onClick={(e) => e.stopPropagation()}
+          />
+          <button
+            onClick={() => setLightboxUrl(null)}
+            style={{
+              position: 'absolute', top: 20, right: 20,
+              width: 40, height: 40, borderRadius: '50%',
+              background: 'rgba(255,255,255,0.15)', border: 'none',
+              cursor: 'pointer', color: 'white',
+              display: 'flex', alignItems: 'center', justifyContent: 'center',
+            }}
+          >
+            <X size={18} />
+          </button>
+        </div>
+      )}
     </div>
   )
 }

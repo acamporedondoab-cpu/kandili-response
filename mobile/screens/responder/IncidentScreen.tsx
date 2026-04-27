@@ -18,6 +18,7 @@ import MapView, { Marker } from 'react-native-maps'
 import * as Location from 'expo-location'
 import { supabase } from '../../lib/supabase/client'
 import type { Incident, IncidentStatus } from '../../types'
+import MediaGallery from '../../components/MediaGallery'
 
 interface Props {
   incidentId: string
@@ -51,6 +52,7 @@ export default function IncidentScreen({ incidentId, userId, onBack }: Props) {
   const [loading, setLoading] = useState(true)
   const [updating, setUpdating] = useState(false)
   const [notesModalVisible, setNotesModalVisible] = useState(false)
+  const [navigating, setNavigating] = useState(false)
   const [noteWhat, setNoteWhat] = useState('')
   const [noteWhen, setNoteWhen] = useState('')
   const [noteWhere, setNoteWhere] = useState('')
@@ -151,6 +153,32 @@ export default function IncidentScreen({ incidentId, userId, onBack }: Props) {
       setIncident(data as Incident)
     }
     setLoading(false)
+  }
+
+  async function handleNavigate() {
+    if (!incident?.citizen_lat || !incident?.citizen_lng) return
+    setNavigating(true)
+    try {
+      let originParam = ''
+      const { status } = await Location.requestForegroundPermissionsAsync()
+      if (status === 'granted') {
+        const loc = await Location.getCurrentPositionAsync({ accuracy: Location.Accuracy.Balanced })
+        originParam = `&origin=${loc.coords.latitude},${loc.coords.longitude}`
+      }
+      const dest = `${incident.citizen_lat},${incident.citizen_lng}`
+      const webUrl = `https://www.google.com/maps/dir/?api=1${originParam}&destination=${dest}&travelmode=driving`
+      const nativeScheme = Platform.OS === 'ios'
+        ? `comgooglemaps://?saddr=${originParam ? originParam.slice(8) : ''}&daddr=${dest}&directionsmode=driving`
+        : `google.navigation:q=${dest}&mode=d`
+      const canUseNative = await Linking.canOpenURL(nativeScheme)
+      Linking.openURL(canUseNative ? nativeScheme : webUrl)
+    } catch {
+      // fallback: open Google Maps without origin
+      const dest = `${incident.citizen_lat},${incident.citizen_lng}`
+      Linking.openURL(`https://www.google.com/maps/dir/?api=1&destination=${dest}&travelmode=driving`)
+    } finally {
+      setNavigating(false)
+    }
   }
 
   async function handleStatusUpdate() {
@@ -302,13 +330,15 @@ export default function IncidentScreen({ incidentId, userId, onBack }: Props) {
               />
             </MapView>
             <TouchableOpacity
-              style={styles.navigateButton}
-              onPress={() => {
-                const url = `https://www.google.com/maps/dir/?api=1&destination=${incident.citizen_lat},${incident.citizen_lng}&travelmode=driving`
-                Linking.openURL(url)
-              }}
+              style={[styles.navigateButton, navigating && styles.navigateButtonDisabled]}
+              onPress={handleNavigate}
+              disabled={navigating}
             >
-              <Text style={styles.navigateButtonText}>🧭 Navigate to Incident</Text>
+              {navigating ? (
+                <ActivityIndicator size="small" color="#fff" />
+              ) : (
+                <Text style={styles.navigateButtonText}>🧭 Navigate to Incident</Text>
+              )}
             </TouchableOpacity>
           </View>
         )}
@@ -319,6 +349,8 @@ export default function IncidentScreen({ incidentId, userId, onBack }: Props) {
             <Text style={styles.notesText}>{incident.notes}</Text>
           </View>
         )}
+
+        <MediaGallery incidentId={incidentId} />
 
         <View style={styles.metaRow}>
           <Text style={styles.metaLabel}>Reported</Text>
@@ -561,6 +593,9 @@ const styles = StyleSheet.create({
     borderRadius: 8,
     paddingVertical: 12,
     alignItems: 'center',
+  },
+  navigateButtonDisabled: {
+    opacity: 0.6,
   },
   navigateButtonText: {
     color: '#fff',

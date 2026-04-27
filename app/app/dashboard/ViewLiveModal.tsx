@@ -4,8 +4,15 @@ import { useEffect, useState, useMemo } from 'react'
 import { MapContainer, TileLayer, Marker, Popup, useMap } from 'react-leaflet'
 import L from 'leaflet'
 import { createClient } from '../lib/supabase/client'
-import { X, MapPin, User, Navigation } from 'lucide-react'
+import { X, MapPin, User, Navigation, Video } from 'lucide-react'
 import 'leaflet/dist/leaflet.css'
+
+type IncidentMedia = {
+  id: string
+  media_url: string
+  media_type: 'photo' | 'video'
+  description: string | null
+}
 
 function FitBounds({ positions }: { positions: [number, number][] }) {
   const map = useMap()
@@ -49,6 +56,8 @@ export default function ViewLiveModal({
 }) {
   const supabase = createClient()
   const [mounted, setMounted] = useState(false)
+  const [media, setMedia] = useState<IncidentMedia[]>([])
+  const [lightboxUrl, setLightboxUrl] = useState<string | null>(null)
   const [responderPos, setResponderPos] = useState<{ lat: number; lng: number } | null>(
     responder?.last_known_lat && responder?.last_known_lng
       ? { lat: Number(responder.last_known_lat), lng: Number(responder.last_known_lng) }
@@ -70,6 +79,25 @@ export default function ViewLiveModal({
   }), [])
 
   useEffect(() => { setMounted(true) }, [])
+
+  useEffect(() => {
+    supabase
+      .from('incident_media')
+      .select('id, media_url, media_type, description')
+      .eq('incident_id', incident.id)
+      .order('created_at', { ascending: true })
+      .then(({ data }) => {
+        const rows = (data ?? []) as IncidentMedia[]
+        // Rows stored as a path (post-020) → resolve to public URL
+        setMedia(rows.map(r => {
+          if (r.media_url.startsWith('http')) return r
+          const { data: urlData } = supabase.storage
+            .from('incident-media')
+            .getPublicUrl(r.media_url)
+          return { ...r, media_url: urlData.publicUrl }
+        }))
+      })
+  }, [incident.id])
 
   useEffect(() => {
     if (!responder?.id) return
@@ -108,6 +136,7 @@ export default function ViewLiveModal({
   if (!mounted) return null
 
   return (
+    <>
     <div
       style={{
         position: 'fixed', inset: 0, zIndex: 1000,
@@ -160,6 +189,58 @@ export default function ViewLiveModal({
           <InfoCell icon={<Navigation size={13} />} label="Distance / ETA" value={distKm !== null ? `${distKm.toFixed(1)} km · ${etaMin} min` : 'No GPS data'} color="#10B981" border />
         </div>
 
+        {/* Media attachments */}
+        {media.length > 0 && (
+          <div style={{
+            padding: '14px 22px',
+            borderBottom: '1px solid rgba(255,255,255,0.07)',
+          }}>
+            <p style={{ fontSize: 10.5, fontWeight: 700, color: 'rgba(255,255,255,0.35)', letterSpacing: '0.08em', textTransform: 'uppercase', marginBottom: 12 }}>
+              Attached Media ({media.length})
+            </p>
+            <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap' }}>
+              {media.map((item) => (
+                <div key={item.id} style={{ display: 'flex', flexDirection: 'column', gap: 6, maxWidth: 100 }}>
+                  {item.media_type === 'photo' ? (
+                    <button
+                      onClick={() => setLightboxUrl(item.media_url)}
+                      style={{
+                        width: 90, height: 90, borderRadius: 8, overflow: 'hidden',
+                        border: '1px solid rgba(255,255,255,0.12)', padding: 0, cursor: 'pointer',
+                        background: 'none',
+                      }}
+                    >
+                      {/* eslint-disable-next-line @next/next/no-img-element */}
+                      <img src={item.media_url} alt="" style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
+                    </button>
+                  ) : (
+                    <a
+                      href={item.media_url}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      style={{
+                        width: 90, height: 90, borderRadius: 8,
+                        border: '1px solid rgba(59,130,246,0.30)',
+                        background: 'rgba(59,130,246,0.08)',
+                        display: 'flex', flexDirection: 'column', alignItems: 'center',
+                        justifyContent: 'center', gap: 6, textDecoration: 'none',
+                      }}
+                    >
+                      <Video size={24} color="#3B82F6" />
+                      <span style={{ fontSize: 9, color: '#3B82F6', fontWeight: 700, letterSpacing: 1 }}>VIDEO</span>
+                    </a>
+                  )}
+                  {item.description && (
+                    <p style={{ fontSize: 10.5, color: 'rgba(255,255,255,0.45)', lineHeight: 1.4, maxWidth: 90 }}>
+                      {item.description}
+                    </p>
+                  )}
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
+
         {/* Map */}
         <div style={{ height: 420, position: 'relative' }}>
           <MapContainer
@@ -206,6 +287,39 @@ export default function ViewLiveModal({
         </div>
       </div>
     </div>
+
+    {/* Lightbox */}
+    {lightboxUrl && (
+      <div
+        style={{
+          position: 'fixed', inset: 0, zIndex: 2000,
+          background: 'rgba(0,0,0,0.92)',
+          display: 'flex', alignItems: 'center', justifyContent: 'center',
+        }}
+        onClick={() => setLightboxUrl(null)}
+      >
+        {/* eslint-disable-next-line @next/next/no-img-element */}
+        <img
+          src={lightboxUrl}
+          alt=""
+          style={{ maxWidth: '90vw', maxHeight: '85vh', borderRadius: 12, objectFit: 'contain' }}
+          onClick={(e) => e.stopPropagation()}
+        />
+        <button
+          onClick={() => setLightboxUrl(null)}
+          style={{
+            position: 'absolute', top: 20, right: 20,
+            width: 40, height: 40, borderRadius: '50%',
+            background: 'rgba(255,255,255,0.15)', border: 'none',
+            cursor: 'pointer', color: 'white',
+            display: 'flex', alignItems: 'center', justifyContent: 'center',
+          }}
+        >
+          <X size={18} />
+        </button>
+      </div>
+    )}
+    </>
   )
 }
 

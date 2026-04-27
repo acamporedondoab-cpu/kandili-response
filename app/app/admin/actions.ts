@@ -40,6 +40,8 @@ export async function createOrganizationAction(
   const base_lat = parseFloat(formData.get('base_lat') as string)
   const base_lng = parseFloat(formData.get('base_lng') as string)
   const coverage_radius_km = parseFloat(formData.get('coverage_radius_km') as string)
+  const barangayRaw = (formData.get('barangay') as string)?.trim()
+  const barangay = barangayRaw ? barangayRaw.toLowerCase() : null
   const logoFile = formData.get('logo') as File | null
 
   if (!name || !type || isNaN(base_lat) || isNaN(base_lng) || isNaN(coverage_radius_km)) {
@@ -58,6 +60,7 @@ export async function createOrganizationAction(
     base_lat,
     base_lng,
     coverage_radius_km,
+    barangay,
     logo_url,
     is_active: true,
     created_by: user.id,

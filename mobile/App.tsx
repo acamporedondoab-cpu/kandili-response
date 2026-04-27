@@ -14,6 +14,7 @@ import { supabase } from './lib/supabase/client'
 import { getCurrentProfile, signOut } from './lib/auth'
 import { registerForPushNotifications } from './lib/notifications'
 import type { Profile, EmergencyType } from './types'
+import type { MediaItem } from './lib/media'
 
 // Screens
 import LoginScreen from './screens/auth/LoginScreen'
@@ -24,38 +25,48 @@ import HomeScreen from './screens/citizen/HomeScreen'
 import CountdownScreen from './screens/citizen/CountdownScreen'
 import ActiveIncidentScreen from './screens/citizen/ActiveIncidentScreen'
 import CitizenHistoryScreen from './screens/citizen/CitizenHistoryScreen'
+import ProfileScreen from './screens/citizen/ProfileScreen'
 import DutyScreen from './screens/responder/DutyScreen'
 import IncidentScreen from './screens/responder/IncidentScreen'
 import ResponderHistoryScreen from './screens/responder/ResponderHistoryScreen'
+import ResponderProfileScreen from './screens/responder/ResponderProfileScreen'
 import TLDashboardScreen from './screens/tl/TLDashboardScreen'
 import TLIncidentDetailScreen from './screens/tl/TLIncidentDetailScreen'
 import TLHistoryScreen from './screens/tl/TLHistoryScreen'
+import TLProfileScreen from './screens/tl/TLProfileScreen'
 import PhoneVerificationScreen from './screens/citizen/PhoneVerificationScreen'
 
 // ─── Citizen Stack ────────────────────────────────────────────────────────────
 type CitizenParamList = {
   Home: undefined
-  Countdown: { emergencyType: EmergencyType }
-  ActiveIncident: { incidentId: string }
+  Countdown: { emergencyType: EmergencyType; pendingMedia: MediaItem[] }
+  ActiveIncident: { incidentId: string; userId: string; pendingMedia?: MediaItem[] }
   CitizenHistory: undefined
+  Profile: undefined
 }
 
 const CitizenStack = createNativeStackNavigator<CitizenParamList>()
 
-function CitizenNavigator({ userId }: { userId: string }) {
+function CitizenNavigator({ userId, profile, onProfileUpdated }: {
+  userId: string
+  profile: Profile | null
+  onProfileUpdated: (updated: Partial<Profile>) => void
+}) {
   return (
     <CitizenStack.Navigator screenOptions={{ headerShown: false }}>
       <CitizenStack.Screen name="Home">
         {(props) => (
           <HomeScreen
             userId={userId}
-            onSosDispatched={(type: any) =>
-              props.navigation.navigate('Countdown', { emergencyType: type })
+            profile={profile}
+            onSosDispatched={(type: EmergencyType, pendingMedia: MediaItem[]) =>
+              props.navigation.navigate('Countdown', { emergencyType: type, pendingMedia })
             }
             onGoToActiveIncident={(id) =>
-              props.navigation.navigate('ActiveIncident', { incidentId: id })
+              props.navigation.navigate('ActiveIncident', { incidentId: id, userId })
             }
             onGoToHistory={() => props.navigation.navigate('CitizenHistory')}
+            onGoToProfile={() => props.navigation.navigate('Profile')}
           />
         )}
       </CitizenStack.Screen>
@@ -67,7 +78,11 @@ function CitizenNavigator({ userId }: { userId: string }) {
             <CountdownScreen
               emergencyType={emergencyType}
               onDispatched={(id) => {
-                props.navigation.replace('ActiveIncident', { incidentId: id })
+                props.navigation.replace('ActiveIncident', {
+                  incidentId: id,
+                  userId,
+                  pendingMedia: props.route.params.pendingMedia,
+                })
               }}
               onCancelled={() => props.navigation.goBack()}
             />
@@ -79,6 +94,8 @@ function CitizenNavigator({ userId }: { userId: string }) {
         {(props) => (
           <ActiveIncidentScreen
             incidentId={props.route.params.incidentId}
+            userId={props.route.params.userId}
+            pendingMedia={props.route.params.pendingMedia}
             onBack={() => props.navigation.navigate('Home')}
           />
         )}
@@ -92,6 +109,16 @@ function CitizenNavigator({ userId }: { userId: string }) {
           />
         )}
       </CitizenStack.Screen>
+
+      <CitizenStack.Screen name="Profile">
+        {(props) => profile ? (
+          <ProfileScreen
+            profile={profile}
+            onBack={() => props.navigation.goBack()}
+            onProfileUpdated={onProfileUpdated}
+          />
+        ) : null}
+      </CitizenStack.Screen>
     </CitizenStack.Navigator>
   )
 }
@@ -101,11 +128,16 @@ type ResponderParamList = {
   Duty: undefined
   Incident: { incidentId: string }
   ResponderHistory: undefined
+  ResponderProfile: undefined
 }
 
 const ResponderStack = createNativeStackNavigator<ResponderParamList>()
 
-function ResponderNavigator({ userId }: { userId: string }) {
+function ResponderNavigator({ userId, profile, onProfileUpdated }: {
+  userId: string
+  profile: Profile | null
+  onProfileUpdated: (updated: Partial<Profile>) => void
+}) {
   return (
     <ResponderStack.Navigator screenOptions={{ headerShown: false }}>
       <ResponderStack.Screen name="Duty">
@@ -116,6 +148,7 @@ function ResponderNavigator({ userId }: { userId: string }) {
               props.navigation.navigate('Incident', { incidentId: id })
             }
             onGoToHistory={() => props.navigation.navigate('ResponderHistory')}
+            onGoToProfile={() => props.navigation.navigate('ResponderProfile')}
           />
         )}
       </ResponderStack.Screen>
@@ -138,6 +171,16 @@ function ResponderNavigator({ userId }: { userId: string }) {
           />
         )}
       </ResponderStack.Screen>
+
+      <ResponderStack.Screen name="ResponderProfile">
+        {(props) => profile ? (
+          <ResponderProfileScreen
+            profile={profile}
+            onBack={() => props.navigation.goBack()}
+            onProfileUpdated={onProfileUpdated}
+          />
+        ) : null}
+      </ResponderStack.Screen>
     </ResponderStack.Navigator>
   )
 }
@@ -147,11 +190,17 @@ type TLParamList = {
   TLDashboard: undefined
   TLIncidentDetail: { incidentId: string }
   TLHistory: undefined
+  TLProfile: undefined
 }
 
 const TLStack = createNativeStackNavigator<TLParamList>()
 
-function TLNavigator({ userId, orgId, fullName }: { userId: string; orgId: string; fullName: string | null }) {
+function TLNavigator({ userId, orgId, profile, onProfileUpdated }: {
+  userId: string
+  orgId: string
+  profile: Profile | null
+  onProfileUpdated: (updated: Partial<Profile>) => void
+}) {
   return (
     <TLStack.Navigator screenOptions={{ headerShown: false }}>
       <TLStack.Screen name="TLDashboard">
@@ -159,11 +208,12 @@ function TLNavigator({ userId, orgId, fullName }: { userId: string; orgId: strin
           <TLDashboardScreen
             userId={userId}
             orgId={orgId}
-            fullName={fullName}
+            profile={profile}
             onOpenIncident={(id) =>
               props.navigation.navigate('TLIncidentDetail', { incidentId: id })
             }
             onGoToHistory={() => props.navigation.navigate('TLHistory')}
+            onGoToProfile={() => props.navigation.navigate('TLProfile')}
           />
         )}
       </TLStack.Screen>
@@ -186,6 +236,16 @@ function TLNavigator({ userId, orgId, fullName }: { userId: string; orgId: strin
             onBack={() => props.navigation.goBack()}
           />
         )}
+      </TLStack.Screen>
+
+      <TLStack.Screen name="TLProfile">
+        {(props) => profile ? (
+          <TLProfileScreen
+            profile={profile}
+            onBack={() => props.navigation.goBack()}
+            onProfileUpdated={onProfileUpdated}
+          />
+        ) : null}
       </TLStack.Screen>
     </TLStack.Navigator>
   )
@@ -343,13 +403,26 @@ export default function App() {
   return (
     <SafeAreaProvider>
       <NavigationContainer>
-        {profile.role === 'citizen' && <CitizenNavigator userId={session.user.id} />}
-        {profile.role === 'responder' && <ResponderNavigator userId={session.user.id} />}
+        {profile.role === 'citizen' && (
+          <CitizenNavigator
+            userId={session.user.id}
+            profile={profile}
+            onProfileUpdated={(updated) => setProfile((prev) => prev ? { ...prev, ...updated } : prev)}
+          />
+        )}
+        {profile.role === 'responder' && (
+          <ResponderNavigator
+            userId={session.user.id}
+            profile={profile}
+            onProfileUpdated={(updated) => setProfile((prev) => prev ? { ...prev, ...updated } : prev)}
+          />
+        )}
         {profile.role === 'team_leader' && (
           <TLNavigator
             userId={session.user.id}
             orgId={profile.organization_id ?? ''}
-            fullName={profile.full_name}
+            profile={profile}
+            onProfileUpdated={(updated) => setProfile((prev) => prev ? { ...prev, ...updated } : prev)}
           />
         )}
         {profile.role === 'super_admin' && (

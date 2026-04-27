@@ -16,6 +16,7 @@ import { SafeAreaView } from 'react-native-safe-area-context'
 import MapView, { Marker } from 'react-native-maps'
 import { supabase } from '../../lib/supabase/client'
 import type { Incident, Profile } from '../../types'
+import MediaGallery from '../../components/MediaGallery'
 
 function getMapRegion(incident: Incident) {
   const cLat = incident.citizen_lat!
@@ -293,6 +294,8 @@ export default function TLIncidentDetailScreen({ incidentId, tlUserId, orgId, on
             <Text style={styles.infoValue}>{incident.notes}</Text>
           </View>
         )}
+
+        <MediaGallery incidentId={incidentId} />
 
         {/* Resolved banner */}
         {isResolved && (

@@ -10,10 +10,23 @@ export async function login(formData: FormData) {
   const email = formData.get('email') as string
   const password = formData.get('password') as string
 
-  const { error } = await supabase.auth.signInWithPassword({ email, password })
+  const { data, error } = await supabase.auth.signInWithPassword({ email, password })
 
   if (error) {
     redirect(`/login?error=${encodeURIComponent(error.message)}`)
+  }
+
+  if (data.user) {
+    const { data: profile } = await supabase
+      .from('profiles')
+      .select('role')
+      .eq('id', data.user.id)
+      .single()
+
+    if (profile?.role === 'responder' || profile?.role === 'citizen') {
+      await supabase.auth.signOut()
+      redirect(`/login?error=${encodeURIComponent('Responders and citizens use the Kandili Response mobile app.')}`)
+    }
   }
 
   revalidatePath('/', 'layout')

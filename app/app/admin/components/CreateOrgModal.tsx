@@ -133,6 +133,14 @@ export default function CreateOrgModal({
           <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
             <Field label="Organization Name" name="name" type="text" placeholder="Metro Police Unit 1" required />
 
+            <div>
+              <label style={labelStyle}>Barangay</label>
+              <input name="barangay" type="text" placeholder="calumpang" style={inputStyle} />
+              <p style={{ fontSize: 10.5, color: 'rgba(255,255,255,0.25)', marginTop: 4 }}>
+                Lowercase, no prefix — e.g. calumpang, fatima
+              </p>
+            </div>
+
             {/* Type select */}
             <div>
               <label style={labelStyle}>Type</label>

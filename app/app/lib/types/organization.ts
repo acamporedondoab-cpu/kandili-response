@@ -7,6 +7,7 @@ export interface Organization {
   base_lat: number
   base_lng: number
   coverage_radius_km: number
+  barangay: string | null
   backup_tl_id: string | null
   is_active: boolean
   logo_url: string | null

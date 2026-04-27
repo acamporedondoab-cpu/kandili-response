@@ -1,14 +1,14 @@
 # STATUS — Guardian Dispatch Platform
 
-**Last Updated:** 2026-04-25 (session 17)  
+**Last Updated:** 2026-04-27 (session 22)  
 **Stack:** Next.js 14 · Supabase · Firebase Cloud Messaging · React Native/Expo · TypeScript
 
 ---
 
 ## Current Sprint
 
-**Sprint 9 — OTP Phone Verification — COMPLETE**  
-Firebase Phone Auth (SMS OTP) fully wired. Citizens must verify phone before SOS. ES256 JWT fix applied to all Edge Functions.
+**Sprint 13 (Session 22) — Media History + Video Limits + Bug Fixes — COMPLETE**  
+History screens now show media attachments (was static/read-only). Video capture enforces a 7-second minimum and a best-effort 20-second auto-stop. TL mobile dashboard repopulates on back-navigation via `useFocusEffect`. Admin dashboard metric cards now sync immediately on mount without needing a page reload.
 
 ---
 
@@ -726,20 +726,322 @@ Without `nodeModulesPaths`: `Unable to resolve "react-native"` from components (
 
 ---
 
+## Session 19 — Admin Dashboard Enhancements + Org Edit + Access Control (2026-04-26)
+
+### Organization Detail — Edit Support (COMPLETE ✅)
+
+**Files created/modified:**
+- `app/app/admin/organizations/actions.ts` — added `updateOrganization()` server action: updates `name`, `coverage_radius_km`, `base_lat`, `base_lng`, `backup_tl_id`; if `primaryTlId` provided, sets that profile to `tl_priority = 1` and demotes all other TLs in the org to `tl_priority = 2`
+- `app/app/admin/components/EditOrgModal.tsx` — NEW modal with fields: org name, coverage radius, HQ latitude/longitude (2-column grid), primary TL dropdown, backup TL dropdown; optimistic `onSaved(updated)` callback; validation + error display
+- `app/app/admin/components/OrgDetailClient.tsx` — added `liveOrg` state for instant header update after save; `showEditOrg` state + "✎ Edit" button; calls `router.refresh()` after save for full data sync
+
+**Behavior:**
+- Edit button opens modal pre-populated with current org values
+- Primary TL dropdown initialised from `tl_priority === 1` (falls back to first TL)
+- Org header updates instantly on save (optimistic), then server data resyncs
+- TLs and responders cannot be removed from this page (by design)
+
+---
+
+### Organization Detail — Duty Status Grouping (COMPLETE ✅)
+
+**Problem:** Org detail page listed all TLs and responders in a flat list with no duty status grouping or visual separation.
+
+**Fix:**
+- Added `DutyGroup` sub-component: colored dot + label header (ON DUTY / OFF DUTY), `dimmed` prop at 55% opacity for off-duty group
+- TLs split into `tlsOnDuty` / `tlsOffDuty`; responders split into `respondersOnDuty` / `respondersOffDuty`
+- On-duty group rendered first at full opacity; off-duty group dimmed below
+- `Section` component updated with optional `summary` prop: shows "X on duty · Y off duty"
+- `MemberRow` now shows duty status dot + "On Duty" / "Off Duty" label (was missing before)
+
+---
+
+### Access Control — Responders and Citizens Blocked from Web (COMPLETE ✅)
+
+**Problem:** Responders and citizens could access the web dashboard — web is for super_admin and team_leader only.
+
+**Two-layer fix:**
+1. `app/app/lib/auth/actions.ts` — `login()` action: after successful auth, fetches profile role; if `responder` or `citizen`, signs them out immediately and redirects to `/login?error=...`
+2. `app/app/dashboard/page.tsx` — early redirect for existing sessions: if role is `responder` or `citizen`, redirects to login page (handles users already authenticated before the block was added)
+
+**Error message:** `"Responders and citizens use the Kandili Response mobile app."`
+
+**Bug fixed during this change:**
+- First draft used "Guardian Dispatch" in the error message — corrected to "Kandili Response"
+
+---
+
+### Admin Overview — Dashboard Upgrades (COMPLETE ✅)
+
+**Changes to `app/app/dashboard/page.tsx`:**
+- Added `resolvedQ` — count query: incidents with `status IN ('resolved', 'closed')` created today
+- Added `timelineQ` — selects `created_at, emergency_type` for all incidents in last 24h
+- Changed `incQ.limit(50)` → `limit(10)` (recent incidents table now shows last 10 only)
+- Builds `hourBuckets[24]` server-side from timeline data (index 0 = oldest hour, 23 = current)
+- Builds `typeCounts` (sorted by count desc) from same timeline dataset — one query, two derived values
+- Passes `resolvedToday`, `timeline`, `typeCounts` as new props to `DashboardClient`
+
+**Changes to `app/app/dashboard/DashboardClient.tsx`:**
+- Added **4th metric card** "Resolved Today" (bright green `#22C55E`, CheckCircle2 icon) — count of today's incidents that are resolved/closed
+- Metric card grid changed from `repeat(3, 1fr)` → `repeat(4, 1fr)`
+- Added **`ActivityChart`** component: 24 CSS bars (flex layout), height proportional to incident volume, current-hour bar bright cyan, empty bars shown at minimum height; time labels at 24h/18h/12h/6h/Now
+- Added **`TypeBreakdown`** component: colored dot per type, count + horizontal progress bar, last 24h scope; types mapped to colors (Crime=blue, Medical=red, Fire=orange, Rescue=green, etc.)
+- Insights row layout: `1fr 300px` grid — chart takes remaining space, type panel fixed 300px
+- Recent Incidents table subtitle updated: "Last 50" → "Last 10"
+- Realtime INSERT handler slice cap: 50 → 10; `refetchAll()` limit: 50 → 10
+
+**Data scope confirmed:**
+- TL overview is scoped to their own organization (`organization_id` filter applied for all non-`super_admin` roles across all 4 queries)
+
+**Build status:** ✅ Clean TypeScript check + Next.js build
+
+---
+
+## Session 18 — Mobile Profile Screens + Home Screen Enhancements (2026-04-26)
+
+### Mobile Profile Screens — All 3 Roles (COMPLETE ✅ — design approved)
+
+**Files created:**
+- `mobile/screens/citizen/ProfileScreen.tsx`
+- `mobile/screens/responder/ResponderProfileScreen.tsx`
+- `mobile/screens/tl/TLProfileScreen.tsx`
+
+**Features (all three screens):**
+- Avatar upload via `expo-image-picker` → Supabase Storage bucket `avatars` (folder path: `userId/timestamp.ext`)
+- Editable full name + email with validation; email change triggers Supabase confirmation email
+- Read-only phone number with green "Verified" badge
+- Role badge (CITIZEN / RESPONDER / TEAM LEADER) under avatar
+- Save button with loading state; alerts for success/email taken/validation errors
+
+**Responder-specific:** duty status indicator banner (ON DUTY / OFF DUTY) with note to toggle from dashboard  
+**TL-specific:** ON/OFF duty toggle switch updates `is_on_duty` in DB in real time; TEAM LEADER badge
+
+**Migrations applied ✅:**
+- `supabase/017_avatars_bucket.sql` — creates `avatars` public storage bucket
+- `supabase/018_avatars_rls_fix.sql` — RLS uses `storage.foldername(name)` for folder-based paths (`userId/timestamp.ext`)
+
+---
+
+### DutyScreen (Responder Home) Enhancements (COMPLETE ✅ — design approved)
+
+**File:** `mobile/screens/responder/DutyScreen.tsx`
+
+**Before:** Header showed "Guardian Dispatch"; no sidebar; emoji standby icon; no org branding  
+**After:**
+- Header shows real org name + org logo image (from `organizations.logo_url`, Supabase `org-logos` bucket); falls back to letter initial if no logo uploaded
+- Hamburger button (top-right) opens slide-in sidebar modal with: centered avatar + full name + role + org name; History link; Profile link; Sign Out button
+- Full name greeting: "Good morning / afternoon / evening, [First Name]"
+- Professional standby state: Feather `radio` icon in 80×80 indigo circle (no emoji)
+- `fetchOrgName()` selects `name, logo_url` from `organizations` on mount
+
+---
+
+### TLDashboardScreen Enhancements (COMPLETE ✅ — design approved)
+
+**File:** `mobile/screens/tl/TLDashboardScreen.tsx`
+
+**Changes this session:**
+- Added `orgLogoUrl` state; `fetchOrgName()` updated to select `name, logo_url`
+- Header now shows actual org logo image when `logo_url` is set; letter initial badge as fallback
+- Sidebar profile section centered (`alignItems: 'center'`, `textAlign: 'center'` on name/org text, avatar bumped 64→72px)
+
+---
+
+### Bug Fix — localhost:3000 Infinite Load (FIXED ✅)
+
+**Problem:** Next.js dev server process (PID 14432) was alive (port LISTENING) but not accepting HTTP connections — `curl` returned exit code 7 (connection refused).  
+**Root cause:** Node process crashed internally but stayed resident, holding the port.  
+**Fix:** `Stop-Process -Id 14432 -Force` then `npm run dev` restart. Server up in 3.3s; curl confirmed `307` redirect.
+
+---
+
+## Session 20 — Barangay Jurisdiction Matching + Dashboard Fix (2026-04-26)
+
+### Barangay-Based Org Matching — Full Implementation (COMPLETE ✅)
+
+**Problem:** Org jurisdiction was matched purely by PostGIS distance (ST_DWithin radius from `base_location`). No concept of barangay boundaries — a citizen 1km from a station in the wrong barangay could be misrouted.
+
+**New matching flow:**
+1. Mobile reverse-geocodes GPS → extracts `r.district` (Expo LocationGeocodedAddress) = barangay name in Philippines
+2. Normalized: lowercase, strip "Barangay"/"Brgy." prefix → e.g. `"Brgy. Calumpang"` → `"calumpang"`
+3. Sent to edge function as `barangay` field with 2s timeout (non-blocking — falls back to null on timeout)
+4. SQL `fn_dispatch_sos_atomic` tries exact barangay match first; if no match, falls back to existing distance query
+
+**Files changed:**
+- `supabase/019_barangay_jurisdiction.sql` — NEW migration (applied ✅): adds `organizations.barangay text`, `incidents.citizen_barangay text`; drops old 5-arg `fn_dispatch_sos_atomic`, recreates with 6th param `p_barangay text DEFAULT NULL`; barangay-first matching logic; re-grants to service_role
+- `mobile/lib/location.ts` — `reverseGeocode()` now returns "Brgy. X, City" format; new `getBarangay()` function extracts normalized barangay from `r.district`
+- `mobile/screens/citizen/CountdownScreen.tsx` — auth token fetch + `getBarangay()` run in parallel (`Promise.all` with 2s race timeout); `barangay` sent in dispatch body
+- `supabase/functions/dispatch-sos/index.ts` — accepts `barangay` from body, sanitizes, passes as `p_barangay` to RPC; **redeployed ✅**
+- `app/app/lib/types/organization.ts` — added `barangay: string | null`
+- `app/app/admin/organizations/actions.ts` — `updateOrganization()` now saves `barangay` (auto-lowercased)
+- `app/app/admin/actions.ts` — `createOrganizationAction` saves `barangay` (auto-lowercased)
+- `app/app/admin/components/EditOrgModal.tsx` — Barangay input field added with hint text; Field component supports optional `hint` prop
+- `app/app/admin/components/CreateOrgModal.tsx` — Barangay input field added
+
+**Fallback chain:**
+1. Exact barangay match (primary)
+2. PostGIS ST_DWithin radius from `base_location` (fallback — unchanged)
+
+---
+
+### Dashboard By Type — "crime" → "Police" Label Fix (COMPLETE ✅)
+
+**Problem:** DB stores `emergency_type = 'crime'` but mobile displays label "POLICE". By Type chart showed "crime" instead of "Police" and count appeared low because user was comparing 24h count to all-time count.
+
+**Fix:**
+- Added `TYPE_LABELS: Record<string, string> = { crime: 'Police' }` constant to `DashboardClient.tsx`
+- `TypeBreakdown` now renders `TYPE_LABELS[type] ?? type` — "crime" displays as "Police", all others show capitalized as-is
+
+---
+
+---
+
+## Session 21 — Incident Media Upload + Web Dashboard Media Display (2026-04-27)
+
+### Mobile Media Upload (COMPLETE ✅)
+
+**Problem:** No way for citizens or responders to attach photo/video evidence to incidents.
+
+**Files created/modified:**
+- `mobile/lib/media.ts` — `uploadIncidentMedia()` (reads file as base64 → ArrayBuffer, uploads to `incident-media` Supabase Storage, inserts `incident_media` row storing path); `fetchIncidentMedia()` (fetches rows, resolves storage paths to public URLs via `getPublicUrl()`, passes through legacy full-URL rows unchanged)
+- `mobile/screens/responder/IncidentScreen.tsx` — "Add Media" button opens `expo-image-picker` (camera or gallery); description modal after pick; uploads via `uploadIncidentMedia()`; shows `AttachedMedia` grid in incident detail
+- `mobile/package.json` — added `expo-image-picker`, `base64-arraybuffer`
+
+**Storage:** `incident-media` bucket (public); paths stored as `incidentId/timestamp-random.ext`
+
+**Migrations applied:**
+- `supabase/019_barangay_jurisdiction.sql` — already applied
+- `supabase/020_incident_media.sql` — creates `incident_media` table with RLS: citizen (own incidents), org TL/responders (same org), super_admin (all)
+- `supabase/021_media_bucket_policies.sql` — storage policies for upload/read
+- `supabase/022_fix_media_bucket_policies.sql` — **MUST BE APPLIED IN SUPABASE SQL EDITOR** — reverts bucket to `public = true` (migration 021 inadvertently made it private); drops complex JOIN policies; creates simple `authenticated` INSERT + `public` SELECT policies
+
+---
+
+### Web Dashboard Media Display (COMPLETE ✅)
+
+All three web views now show attached media thumbnails when expanding an incident row.
+
+**Pattern used (lazy fetch on expand):** `useEffect` gated on `isExpanded` (or component mount for detail page) fetches `incident_media` only when needed — avoids N+1 queries on page load.
+
+**Files modified:**
+
+**`app/app/dashboard/incident-history/IncidentHistoryClient.tsx`** (`IncidentRow` component):
+- Added `useEffect` + `createClient` import
+- Added `IncidentMedia` type, `media` state, `lightboxUrl` state
+- `useEffect` fetches media when `isExpanded` becomes true; resolves storage paths → public URLs
+- Media grid rendered before PDF Export button: photo thumbnails (click → lightbox) + video links + description caption
+- Lightbox overlay (full-screen dark modal with click-away dismiss)
+
+**`app/app/dashboard/tl/components/IncidentQueueTable.tsx`** (`ResolvedRow` component):
+- Same lazy-fetch pattern added
+- Media grid + lightbox added before PDF Export button
+- Hydration error fixed: `suppressHydrationWarning` on time-ago `<td>` (server/client render `Date.now()` at different instants → `"23m ago"` vs `"24m ago"`)
+
+**`app/app/dashboard/tl/incidents/[id]/page.tsx`**:
+- Added media section: `IncidentMedia` type, `media`/`lightboxUrl` state
+- Non-blocking `useEffect` fetches media after main `load()` completes
+- Media grid + lightbox rendered in main layout before closing `</main>`
+
+---
+
+### Bugs Fixed This Session
+
+| Bug | Root cause | Fix |
+|---|---|---|
+| Media not showing on any web dashboard | No media fetch/display code existed in any web component | Added lazy-fetch-on-expand pattern to all 3 locations |
+| Admin Incident History still blank after TL fix | `IncidentHistoryClient.tsx` is a completely separate component from `IncidentQueueTable.tsx` — needed same fix independently | Added identical pattern to `IncidentRow` in `IncidentHistoryClient.tsx` |
+| Import path wrong in `IncidentQueueTable.tsx` | Used 4 levels up (`../../../../lib/...`) but file is only 3 levels deep (`components/` → `tl/` → `dashboard/` → `app/`) | Corrected to `../../../lib/supabase/client` |
+| TypeScript implicit `any` in Supabase `.then()` callback | Destructured `{ data }` had no type annotation | Added explicit type: `.then(({ data }: { data: IncidentMedia[] \| null }) => {` |
+| Hydration mismatch: `"23m ago"` vs `"24m ago"` | `getElapsed()` calls `Date.now()` at render; server and client render at different timestamps | `suppressHydrationWarning` on the `<td>` |
+| Web images broken (403/404) after migration 021 | Migration 021 set bucket to `private = true` via storage policies; `getPublicUrl()` returns a URL but CDN denies it for private buckets | Migration 022 reverts bucket to `public = true` |
+
+---
+
+## Session 22 — Media History + Video Limits + Bug Fixes (2026-04-27)
+
+### History Screens — Media Attachments (COMPLETE ✅)
+
+**Problem:** All three history screens (Citizen, Responder, TL) showed resolved incident cards as static/read-only. Attached photos and videos could not be viewed.
+
+**Root cause:** `MediaGallery` component was never added to history screen cards. It was only wired into active incident views.
+
+**Files modified:**
+- `mobile/screens/citizen/CitizenHistoryScreen.tsx` — added `MediaGallery` import + `<MediaGallery incidentId={item.id} />` after citizen confirmation badge
+- `mobile/screens/tl/TLHistoryScreen.tsx` — same
+- `mobile/screens/responder/ResponderHistoryScreen.tsx` — same
+
+---
+
+### Video Duration Limits (COMPLETE ✅)
+
+**Changes to `mobile/components/MediaCaptureModal.tsx`:**
+- `videoMaxDuration` changed 30 → 20 (best-effort hint to native camera; Android may exceed this)
+- **Minimum 7 seconds enforced:** if `asset.duration < 7000`, alert shown and capture rejected
+- **No hard maximum rejection** — preserving evidence takes priority over enforcing exact duration; 20s is best-effort only
+- UI labels updated to "7 – 20 seconds" in both the choose-stage button and the review-stage preview
+
+---
+
+### Bug Fix — TL Mobile Dashboard Empty After Navigating Back (FIXED ✅)
+
+**Problem:** After a TL acknowledged an incident and pressed Back, the incident queue appeared completely empty.
+
+**Root cause:** `fetchIncidents()` was called only in `useEffect([orgId])` which fires on mount. React Navigation keeps the TL screen mounted while navigating to incident detail, so returning to it does not re-trigger `useEffect`.
+
+**Fix (`mobile/screens/tl/TLDashboardScreen.tsx`):**
+- Added `useFocusEffect` from `@react-navigation/native` and `useCallback` to React import
+- `useFocusEffect(useCallback(() => { fetchIncidents() }, [orgId]))` placed before the existing `useEffect`
+- Now `fetchIncidents()` re-runs every time the screen gains focus, regardless of mount state
+
+---
+
+### Bug Fix — Admin Dashboard Metric Cards Stuck at Zero (FIXED ✅)
+
+**Problem:** On page load, all metric cards (Active Incidents, Units En Route, etc.) showed 0. A manual reload was required to see live data. This regression had been fixed previously but returned.
+
+**Root cause:** The `firstSubscribe` guard in `DashboardClient.tsx` was preventing `refetchAll()` from firing when the Supabase Realtime channel first connected. SSR data initialized the state but any changes between SSR render time and client hydration were invisible until the 10-second poll fired.
+
+**Fix (`app/app/dashboard/DashboardClient.tsx`):**
+- Removed `let firstSubscribe = true` variable
+- Added `refetchAll()` call immediately after function definition (before channel setup) — syncs any changes that occurred between SSR and hydration
+- Subscribe callback changed from `if (firstSubscribe) { firstSubscribe = false; return }; refetchAll()` → `if (status === 'SUBSCRIBED') refetchAll()` — handles reconnects too
+
+---
+
+### MediaGallery Video Lightbox — Fullscreen (COMPLETE ✅)
+
+**Problem:** Videos played in a small box because `lightboxVideoWrap` used `aspectRatio: 16/9`. Phone cameras record in portrait (9:16), so portrait videos only used a fraction of the available space.
+
+**Fix (`mobile/components/MediaGallery.tsx`):**
+- `lightboxVideoWrap`: removed `aspectRatio: 16/9`; replaced with `flex: 1` — video wrapper now fills the full screen height
+- `lightboxImage`: changed `height: '75%'` → `flex: 1` — photos also fill the full available space
+- `lightbox` container: changed `justifyContent: 'center'` → `justifyContent: 'flex-start'` — video fills from top
+- `ResizeMode.CONTAIN` ensures video stays letterboxed within bounds (no cropping)
+
+---
+
 ## Next Steps
 
-1. ~~End-to-end test: Register → OTP → Home flow on real device~~ ✅ verified working
-2. ~~Migrations 014 + 015 apply~~ ✅ applied
-3. Profile screen (mobile app — citizen/responder view + edit)
-4. Sprint 3B: Google Maps navigation for responder
-5. Responder distance sorting on TL assignment modal — verify with real GPS coordinates
-6. Set `backup_tl_id` on test org for Level 1 escalation FCM push
-7. Register FCM tokens on real device (requires EAS Build)
-8. Production build prep
+1. Register FCM tokens on real device (requires EAS Build)
+2. Production build prep
+3. Deploy latest web changes to Vercel
 
 ### Completed (previously listed as pending)
+- ✅ Migration 022 applied — `incident-media` bucket restored to public (session 21)
+- ✅ `backup_tl_id` set on test org for Level 1 escalation FCM push
+- ✅ `barangay` set on existing orgs via admin panel edit form
+
+### Completed (previously listed as pending)
+- ✅ Admin org detail — edit support (name, coverage, TL assignment) — COMPLETE (session 19)
+- ✅ Responders/citizens blocked from web dashboard — COMPLETE (session 19)
+- ✅ Admin overview — 4th metric card + 24h chart + type breakdown + 10-row table — COMPLETE (session 19)
+- ✅ Sprint 3B: Google Maps navigation for responder — `handleNavigate()` gets GPS origin + platform-native deep link — COMPLETE (session 18)
 - ✅ Incident History page (`/dashboard/incident-history`) — COMPLETE
 - ✅ TL incident detail page rebuild (`/dashboard/tl/incidents/[id]`) — dark theme — COMPLETE
+- ✅ Profile screen (mobile — citizen/responder/TL) — COMPLETE (session 18)
+- ✅ Migrations 017 + 018 applied — avatars bucket + RLS — COMPLETE (session 18)
+- ✅ Admin dashboard refactor — single `liveIncidents` array, all metrics derived — COMPLETE (session 16)
+- ✅ Responder distance sorting on TL assignment modal — `haversineKm` + nearest-first sort — COMPLETE (session 4)
 
 ---
 

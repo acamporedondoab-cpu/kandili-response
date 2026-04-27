@@ -10,6 +10,7 @@ import {
 import { SafeAreaView } from 'react-native-safe-area-context'
 import { supabase } from '../../lib/supabase/client'
 import type { Incident } from '../../types'
+import MediaGallery from '../../components/MediaGallery'
 
 interface Props {
   orgId: string
@@ -143,6 +144,8 @@ export default function TLHistoryScreen({ orgId, onBack }: Props) {
             <Text style={styles.unconfirmedBadgeText}>⚠ Not confirmed by citizen</Text>
           </View>
         )}
+
+        <MediaGallery incidentId={item.id} />
       </View>
     )
   }

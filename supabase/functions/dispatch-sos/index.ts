@@ -77,7 +77,7 @@ serve(async (req) => {
       return json({ error: 'Invalid JSON body' }, 400)
     }
 
-    const { lat, lng, emergency_type, notes } =
+    const { lat, lng, emergency_type, notes, barangay } =
       typeof body === 'object' && body !== null ? body as Record<string, unknown> : {}
 
     if (typeof lat !== 'number' || typeof lng !== 'number' || !Number.isFinite(lat) || !Number.isFinite(lng)) {
@@ -92,6 +92,7 @@ serve(async (req) => {
 
     const safeEmergencyType = emergency_type as EmergencyType
     const safeNotes = typeof notes === 'string' ? notes.trim().slice(0, 500) : null
+    const safeBarangay = typeof barangay === 'string' ? barangay.toLowerCase().trim().slice(0, 100) : null
 
     const { data: rpcRows, error: rpcError } = await adminClient.rpc('fn_dispatch_sos_atomic', {
       p_citizen_id: userId,
@@ -99,6 +100,7 @@ serve(async (req) => {
       p_lng: lng,
       p_emergency_type: safeEmergencyType,
       p_notes: safeNotes,
+      p_barangay: safeBarangay,
     })
 
     if (rpcError) {
