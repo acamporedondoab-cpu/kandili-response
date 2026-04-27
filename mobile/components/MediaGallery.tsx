@@ -100,36 +100,44 @@ export default function MediaGallery({ incidentId, refreshKey }: Props) {
         <StatusBar backgroundColor="#000" barStyle="light-content" />
         <View style={styles.lightbox}>
           {selected?.media_type === 'photo' ? (
-            <Image
-              source={{ uri: selected.media_url }}
-              style={styles.lightboxImage}
-              resizeMode="contain"
-            />
-          ) : selected?.media_type === 'video' ? (
-            <View style={styles.lightboxVideoWrap}>
-              <Video
-                ref={videoRef}
+            <>
+              <Image
                 source={{ uri: selected.media_url }}
-                style={styles.lightboxVideoPlayer}
-                resizeMode={ResizeMode.CONTAIN}
-                useNativeControls
-                shouldPlay
-                onPlaybackStatusUpdate={setVideoStatus}
+                style={styles.lightboxImage}
+                resizeMode="contain"
               />
-              {videoStatus && !('isLoaded' in videoStatus && videoStatus.isLoaded) && (
-                <ActivityIndicator
-                  size="large"
-                  color="#3b82f6"
-                  style={StyleSheet.absoluteFill}
+              {selected?.description ? (
+                <View style={styles.lightboxDesc}>
+                  <Text style={styles.lightboxDescText}>{selected.description}</Text>
+                </View>
+              ) : null}
+            </>
+          ) : selected?.media_type === 'video' ? (
+            <>
+              <View style={styles.lightboxVideoWrap}>
+                <Video
+                  ref={videoRef}
+                  source={{ uri: selected.media_url }}
+                  style={styles.lightboxVideoPlayer}
+                  resizeMode={ResizeMode.CONTAIN}
+                  useNativeControls
+                  shouldPlay
+                  onPlaybackStatusUpdate={setVideoStatus}
                 />
-              )}
-            </View>
-          ) : null}
-
-          {selected?.description ? (
-            <View style={styles.lightboxDesc}>
-              <Text style={styles.lightboxDescText}>{selected.description}</Text>
-            </View>
+                {videoStatus && !('isLoaded' in videoStatus && videoStatus.isLoaded) && (
+                  <ActivityIndicator
+                    size="large"
+                    color="#3b82f6"
+                    style={StyleSheet.absoluteFill}
+                  />
+                )}
+              </View>
+              {selected?.description ? (
+                <View style={styles.lightboxDescBelow}>
+                  <Text style={styles.lightboxDescText}>{selected.description}</Text>
+                </View>
+              ) : null}
+            </>
           ) : null}
 
           <TouchableOpacity
@@ -140,6 +148,7 @@ export default function MediaGallery({ incidentId, refreshKey }: Props) {
             <Feather name="x" size={22} color="#fff" />
           </TouchableOpacity>
         </View>
+
       </Modal>
     </>
   )
@@ -231,6 +240,12 @@ const styles = StyleSheet.create({
     backgroundColor: 'rgba(0,0,0,0.7)',
     borderRadius: 10,
     padding: 14,
+  },
+  lightboxDescBelow: {
+    width: '100%',
+    backgroundColor: 'rgba(0,0,0,0.85)',
+    paddingVertical: 12,
+    paddingHorizontal: 24,
   },
   lightboxDescText: {
     color: '#e5e7eb',

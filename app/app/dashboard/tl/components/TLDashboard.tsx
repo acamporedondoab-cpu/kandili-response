@@ -103,8 +103,9 @@ export default function TLDashboard({ orgId, orgName, tlName, tlIsOnDuty, tlsOnD
   }, [supabase, orgId])
 
   useEffect(() => {
+    fetchIncidents()
     fetchResolvedStats()
-  }, [fetchResolvedStats])
+  }, [fetchIncidents, fetchResolvedStats])
 
   useEffect(() => {
     const sub = createClient()

@@ -1,14 +1,14 @@
 # STATUS — Guardian Dispatch Platform
 
-**Last Updated:** 2026-04-27 (session 23)  
+**Last Updated:** 2026-04-28 (session 24)  
 **Stack:** Next.js 14 · Supabase · Firebase Cloud Messaging · React Native/Expo · TypeScript
 
 ---
 
 ## Current Sprint
 
-**Sprint 14 (Session 23) — APK Maps Fix + FCM Confirmed + Security Hardening + 30s Reminder — COMPLETE**  
-Google Maps now works in production APK. FCM push notifications confirmed working on physical device. Google Maps API key moved out of source code into EAS environment variable. 30-second repeat FCM reminder added to escalation engine for unacknowledged SOS alerts.
+**Sprint 15 (Session 24) — Inline TL Assignment + Status Guards + Dead Code Removal + APK + Vercel Deploy — COMPLETE**  
+TL incident detail page now assigns responders inline (no page navigation). Assignment blocked server-side when incident is already in progress. Dead `updateIncidentStatus` function that bypassed citizen confirmation removed. APK build (EAS preview) completed and installed on device. Web deployed to Vercel via GitHub push.
 
 ---
 
@@ -1081,12 +1081,70 @@ All three web views now show attached media thumbnails when expanding an inciden
 
 ---
 
+## Session 24 — Inline TL Assignment + Status Guards + Dead Code Removal (2026-04-28)
+
+### TL Incident Detail Page — Inline Responder Assignment (COMPLETE ✅)
+
+**Problem:** "Assign Responder →" button navigated away from the incident detail page to a separate assignment page, disrupting the TL workflow.
+
+**Fix (`app/app/dashboard/tl/incidents/[id]/page.tsx`):**
+- Removed redirect-based assignment button
+- Added inline `<select>` dropdown showing all org-scoped responders with ON DUTY / OFF DUTY status
+- Assign button calls `assignResponderAction` (returns result, no redirect)
+- Optimistic local state update: incident row updates to `status: 'assigned'` immediately on success
+- Inline success/error feedback message shown below the dropdown
+- `useTransition` used for `assignPending` state — UI stays responsive during server action
+- `isAssignable` logic expanded: now `!ASSIGN_BLOCKED.includes(status)` — allows re-assignment when `assigned` or `accepted` (responder hasn't moved yet)
+- Responders loaded from DB scoped to TL's `organization_id`
+
+---
+
+### Assignment Status Guards — Pre-flight Check (COMPLETE ✅)
+
+**Problem:** No server-side guard prevented a TL from re-assigning an incident already in progress (e.g., responder en route or already at scene).
+
+**Fix (`app/app/lib/supabase/incident-actions.ts`):**
+- Added `ASSIGN_BLOCKED_STATUSES = ['en_route', 'arrived', 'pending_citizen_confirmation', 'resolved', 'closed']`
+- Both `assignResponder` (redirect-based) and `assignResponderAction` (return-based) now pre-fetch incident status and block with an error if status is in the blocked list
+- Server and UI guards now consistent — both enforce the same blocked statuses
+
+---
+
+### Dead Code Removal (COMPLETE ✅)
+
+**Problem:** `updateIncidentStatus` function mapped `arrived → resolved` directly, bypassing the 2-way citizen confirmation flow. It was never imported or called anywhere — a live trap for future developers.
+
+**Fix:**
+- Deleted `updateIncidentStatus` function (45 lines) from `incident-actions.ts`
+- Deleted `STATUS_TRANSITIONS` map (was only used by the deleted function)
+- `STATUS_TIMESTAMP_FIELD` and `WEB_STATUS_TRANSITIONS` retained (still used by `updateIncidentStatusAction`)
+
+---
+
+### LiveIncidentMap — Extracted to Separate Component (COMPLETE ✅)
+
+**File created:** `app/app/dashboard/LiveIncidentMap.tsx`
+- Split out from `DashboardClient.tsx` into its own file
+- Renders Google Maps with `@vis.gl/react-google-maps` `APIProvider` + `Map` + `AdvancedMarker`
+- Priority-colored pulsing dot pins for active incidents; blue dot pins for responder positions
+- Dark mode map style, legend, active count badge
+- Used by admin dashboard for live incident map view
+
+---
+
+### APK Build + Vercel Deploy (COMPLETE ✅)
+
+- EAS preview APK build completed and installed on device ✅
+- Web changes pushed to GitHub → Vercel deployment triggered ✅
+- Commit: `4db8cb4` — 6 files changed (DashboardClient, LiveIncidentMap, TL incidents/[id], incident-actions, package.json, package-lock.json)
+
+---
+
 ## Next Steps
 
-1. **Rebuild APK** — `eas build --platform android --profile preview` (required for `app.config.js` Maps key change)
+1. Test APK on device — verify inline assignment flow works end-to-end from mobile
 2. Production build prep
-3. Deploy latest web changes to Vercel
-4. Admin dashboard live incident map (deferred — build after APK confirmed stable)
+3. Admin dashboard live incident map (deferred — foundation now in `LiveIncidentMap.tsx`)
 
 ### Completed (previously listed as pending)
 - ✅ Migration 022 applied — `incident-media` bucket restored to public (session 21)

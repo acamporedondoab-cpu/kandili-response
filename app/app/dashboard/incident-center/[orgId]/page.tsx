@@ -5,7 +5,7 @@ import TLDashboard from '../../tl/components/TLDashboard'
 import type { TLIncident, TLResponder } from '../../tl/components/IncidentQueueTable'
 
 const ACTIVE_STATUSES = [
-  'pending', 'assigned', 'en_route', 'arrived',
+  'pending', 'assigned', 'accepted', 'en_route', 'arrived',
   'escalated', 'pending_citizen_confirmation',
 ]
 

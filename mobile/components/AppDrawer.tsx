@@ -1,4 +1,4 @@
-import React, { useEffect, useRef } from 'react'
+import React, { useEffect, useRef, useState } from 'react'
 import {
   View,
   Text,
@@ -40,9 +40,11 @@ export default function AppDrawer({
 }: Props) {
   const translateX = useRef(new Animated.Value(-DRAWER_WIDTH)).current
   const overlayOpacity = useRef(new Animated.Value(0)).current
+  const [isRendered, setIsRendered] = useState(visible)
 
   useEffect(() => {
     if (visible) {
+      setIsRendered(true)
       Animated.parallel([
         Animated.spring(translateX, {
           toValue: 0,
@@ -68,7 +70,9 @@ export default function AppDrawer({
           duration: 200,
           useNativeDriver: true,
         }),
-      ]).start()
+      ]).start(({ finished }) => {
+        if (finished) setIsRendered(false)
+      })
     }
   }, [visible])
 
@@ -87,7 +91,7 @@ export default function AppDrawer({
     { icon: 'clock' as const, label: 'Incident History', onPress: () => { onClose(); onHistory() } },
   ]
 
-  if (!visible && (translateX as any)._value === -DRAWER_WIDTH) return null
+  if (!isRendered) return null
 
   return (
     <View style={StyleSheet.absoluteFill} pointerEvents={visible ? 'auto' : 'none'}>
