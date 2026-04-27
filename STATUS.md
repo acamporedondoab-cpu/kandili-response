@@ -1,6 +1,6 @@
 # STATUS — Guardian Dispatch Platform
 
-**Last Updated:** 2026-04-28 (session 26)  
+**Last Updated:** 2026-04-28 (session 27)  
 **Stack:** Next.js 14 · Supabase · Firebase Cloud Messaging · React Native/Expo · TypeScript
 
 ---
@@ -1258,12 +1258,35 @@ ASSIGNED
 
 ---
 
+## Session 27 — Build Fix + Map Dark Mode Fix (2026-04-28)
+
+### Build Fix — TypeScript Error on Vercel (FIXED ✅)
+
+**Problem:** Vercel deployment failed with `@typescript-eslint/no-explicit-any` errors on `app/app/dashboard/tl/incidents/[id]/page.tsx` — `citizen_id` was accessed via `(data as any).citizen_id` because it was missing from the `Incident` type.
+
+**Fix:** Added `citizen_id: string | null` to the `Incident` type — removed both `as any` casts. Clean build confirmed locally before push. Commit: `496d481`.
+
+---
+
+### Bug Fix — Live Incident Map Dark Mode Not Working (FIXED ✅)
+
+**Root cause:** Google Maps API hard rule — when `mapId` is set (required for `AdvancedMarker` / custom dot pins), the legacy `styles` prop is silently ignored. Our custom `DARK_STYLE` array was being discarded entirely.
+
+**Fix (`app/app/dashboard/LiveIncidentMap.tsx`):**
+- Replaced `styles={darkMode ? DARK_STYLE : undefined}` with `colorScheme={darkMode ? 'DARK' : 'LIGHT'}`
+- `colorScheme` is the native Google Maps dark mode toggle — fully compatible with `mapId`
+- Removed the now-unused 17-line `DARK_STYLE` constant
+- Map/Dark toggle on the dashboard now correctly switches between light and dark map tiles
+
+Commit: `badb8be` — pushed to master, Vercel auto-deployed.
+
+---
+
 ## Next Steps
 
-1. Verify Incident Center back-nav bug resolved on live Vercel deployment
-2. Test APK on device — verify App Drawer freeze fix and video lightbox fix
-3. Production build prep
-4. Admin dashboard live incident map (deferred — foundation now in `LiveIncidentMap.tsx`)
+1. Test APK on device — verify App Drawer freeze fix and video lightbox fix
+2. Production build prep
+3. Admin dashboard live incident map (deferred — foundation now in `LiveIncidentMap.tsx`)
 
 ### Completed (previously listed as pending)
 - ✅ Migration 022 applied — `incident-media` bucket restored to public (session 21)
