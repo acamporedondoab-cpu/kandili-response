@@ -36,11 +36,6 @@
     "android": {
       "package": "com.automateph.guardiandispatch",
       "googleServicesFile": "./google-services.json",
-      "config": {
-        "googleMaps": {
-          "apiKey": "AIzaSyDpuJbk-bFwo-Zee4nWoa561YBhrhcPyYI"
-        }
-      },
       "permissions": [
         "ACCESS_COARSE_LOCATION",
         "ACCESS_FINE_LOCATION",
