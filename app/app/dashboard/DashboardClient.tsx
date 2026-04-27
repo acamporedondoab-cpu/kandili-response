@@ -629,7 +629,7 @@ export default function DashboardClient({
                           <td style={{ padding: '12px 20px', fontSize: 12.5, color: responder ? 'rgba(255,255,255,0.72)' : 'rgba(255,255,255,0.20)', whiteSpace: 'nowrap' }}>
                             {responder?.full_name ?? '—'}
                           </td>
-                          <td style={{ padding: '12px 20px', fontSize: 11.5, color: 'rgba(255,255,255,0.28)', whiteSpace: 'nowrap' }}>
+                          <td suppressHydrationWarning style={{ padding: '12px 20px', fontSize: 11.5, color: 'rgba(255,255,255,0.28)', whiteSpace: 'nowrap' }}>
                             {timeAgo(inc.created_at)}
                           </td>
                           <td style={{ padding: '12px 16px' }}>

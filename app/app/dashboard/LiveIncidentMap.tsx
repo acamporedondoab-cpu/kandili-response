@@ -87,6 +87,7 @@ export default function LiveIncidentMap({ incidents, onPinClick, darkMode = fals
         <Map
           defaultCenter={MAP_CENTER}
           defaultZoom={MAP_ZOOM}
+          mapId="3f414dd03787129154922660"
           gestureHandling="greedy"
           styles={darkMode ? DARK_STYLE : undefined}
           style={{ width: '100%', height: '100%' }}
