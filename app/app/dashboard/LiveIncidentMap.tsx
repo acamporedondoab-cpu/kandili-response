@@ -15,23 +15,6 @@ const PRIORITY_COLOR: Record<string, string> = {
   low:      '#10B981',
 }
 
-const DARK_STYLE = [
-  { elementType: 'geometry', stylers: [{ color: '#0d1117' }] },
-  { elementType: 'labels.text.fill', stylers: [{ color: '#6b7280' }] },
-  { elementType: 'labels.text.stroke', stylers: [{ color: '#0d1117' }] },
-  { featureType: 'administrative', elementType: 'geometry', stylers: [{ color: '#374151' }] },
-  { featureType: 'administrative.locality', elementType: 'labels.text.fill', stylers: [{ color: '#9ca3af' }] },
-  { featureType: 'poi', stylers: [{ visibility: 'off' }] },
-  { featureType: 'road', elementType: 'geometry.fill', stylers: [{ color: '#1f2937' }] },
-  { featureType: 'road', elementType: 'labels.text.fill', stylers: [{ color: '#6b7280' }] },
-  { featureType: 'road.arterial', elementType: 'geometry', stylers: [{ color: '#1e2d40' }] },
-  { featureType: 'road.highway', elementType: 'geometry', stylers: [{ color: '#243447' }] },
-  { featureType: 'road.highway', elementType: 'labels.text.fill', stylers: [{ color: '#9ca3af' }] },
-  { featureType: 'road.local', elementType: 'labels.text.fill', stylers: [{ color: '#4b5563' }] },
-  { featureType: 'transit', stylers: [{ visibility: 'off' }] },
-  { featureType: 'water', elementType: 'geometry', stylers: [{ color: '#060d18' }] },
-  { featureType: 'water', elementType: 'labels.text.fill', stylers: [{ color: '#374151' }] },
-]
 
 type Props = {
   incidents: Incident[]
@@ -89,7 +72,7 @@ export default function LiveIncidentMap({ incidents, onPinClick, darkMode = fals
           defaultZoom={MAP_ZOOM}
           mapId="3f414dd03787129154922660"
           gestureHandling="greedy"
-          styles={darkMode ? DARK_STYLE : undefined}
+          colorScheme={darkMode ? 'DARK' : 'LIGHT'}
           style={{ width: '100%', height: '100%' }}
         >
           {activeIncidents.map((inc) => {
