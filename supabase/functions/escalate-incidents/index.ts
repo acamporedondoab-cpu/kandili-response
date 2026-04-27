@@ -3,6 +3,7 @@ import { createClient, SupabaseClient } from 'https://esm.sh/@supabase/supabase-
 import { sendPush } from '../_shared/fcm.ts'
 
 // Dispatch rule timeouts (seconds)
+const TL_REMINDER = 30         // Reminder: re-notify primary TL at 30s if still pending
 const TL_TIMEOUT = 60          // Stage 1 & 2: TL must acknowledge within 60s
 const ASSIGN_WINDOW = 120      // Rule 4: TL must assign responder within 120s of acknowledging
 const RESPONDER_TIMEOUT = 45   // Stage 3/4: responder must accept within 45s
@@ -35,7 +36,66 @@ serve(async (req) => {
     Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!
   )
 
-  const counts = { stage1: 0, stage2: 0, assignWindow: 0, stage34: 0, stage5: 0 }
+  const counts = { reminder: 0, stage1: 0, stage2: 0, assignWindow: 0, stage34: 0, stage5: 0 }
+
+  // ── Reminder: re-notify primary TL at 30s if incident still pending ───────────
+  {
+    const reminderCutoff = new Date(Date.now() - TL_REMINDER * 1000).toISOString()
+    const tlTimeoutCutoff = new Date(Date.now() - TL_TIMEOUT * 1000).toISOString()
+
+    const { data: incidents, error } = await admin
+      .from('incidents')
+      .select('id, incident_code, organization_id')
+      .eq('status', 'pending')
+      .not('tl_notified_at', 'is', null)
+      .is('tl_assigned_at', null)
+      .lt('tl_notified_at', reminderCutoff)
+      .gt('tl_notified_at', tlTimeoutCutoff)
+
+    if (error) logError('Reminder query error:', error.message)
+
+    for (const inc of incidents ?? []) {
+      // Dedup: skip if reminder already sent for this incident
+      const { count } = await admin.from('escalation_events')
+        .select('id', { count: 'exact', head: true })
+        .eq('incident_id', inc.id).eq('reason', 'tl_reminder_30s')
+      if ((count ?? 0) > 0) continue
+
+      // Find primary on-duty TL for this org
+      const { data: tl } = await admin.from('profiles')
+        .select('id, fcm_token')
+        .eq('organization_id', inc.organization_id)
+        .eq('role', 'team_leader')
+        .eq('is_on_duty', true)
+        .is('deleted_at', null)
+        .order('tl_priority', { ascending: true })
+        .limit(1)
+        .maybeSingle()
+
+      if (!tl) continue
+
+      await admin.from('escalation_events').insert({
+        incident_id: inc.id,
+        escalation_level: 0,
+        from_user_id: null,
+        to_user_id: tl.id,
+        reason: 'tl_reminder_30s',
+        timeout_seconds: TL_REMINDER,
+      })
+
+      if (tl.fcm_token) {
+        await sendPush(
+          tl.fcm_token,
+          '⏰ Reminder — SOS Unacknowledged',
+          `Incident ${inc.incident_code} still needs your response.`,
+          { incident_id: inc.id, type: 'reminder' }
+        ).catch((e) => logError('FCM reminder:', e))
+      }
+
+      log('Reminder → primary TL notified:', inc.incident_code, tl.id)
+      counts.reminder++
+    }
+  }
 
   // ── Stage 1: pending → escalated (primary TL timed out, notify backup TL) ────
   {
