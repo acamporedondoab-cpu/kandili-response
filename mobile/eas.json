@@ -5,34 +5,17 @@
   "build": {
     "development": {
       "developmentClient": true,
-      "distribution": "internal",
-      "android": {
-        "secrets": {
-          "fileSecrets": {
-            "GOOGLE_SERVICES_JSON": "./google-services.json"
-          }
-        }
-      }
+      "distribution": "internal"
     },
     "preview": {
       "distribution": "internal",
       "android": {
-        "buildType": "apk",
-        "secrets": {
-          "fileSecrets": {
-            "GOOGLE_SERVICES_JSON": "./google-services.json"
-          }
-        }
+        "buildType": "apk"
       }
     },
     "production": {
       "android": {
-        "buildType": "apk",
-        "secrets": {
-          "fileSecrets": {
-            "GOOGLE_SERVICES_JSON": "./google-services.json"
-          }
-        }
+        "buildType": "apk"
       }
     }
   },
