@@ -61,6 +61,7 @@ type Incident = {
   assigned_responder_id: string | null
   escalated_at: string | null
   transfer_reason: string | null
+  citizen_id: string | null
 }
 
 type Responder = {
@@ -124,9 +125,9 @@ export default function TLIncidentDetailPage() {
               .then(({ data: p }) => setAckByName(p?.full_name ?? null))
           )
         }
-        if ((data as any).citizen_id) {
+        if (data.citizen_id) {
           lookups.push(
-            supabase.from('profiles').select('full_name').eq('id', (data as any).citizen_id).single()
+            supabase.from('profiles').select('full_name').eq('id', data.citizen_id).single()
               .then(({ data: p }) => setCitizenName(p?.full_name ?? null))
           )
         }
