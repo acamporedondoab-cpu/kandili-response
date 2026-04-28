@@ -1,14 +1,14 @@
 # STATUS — Guardian Dispatch Platform
 
-**Last Updated:** 2026-04-28 (session 27)  
+**Last Updated:** 2026-04-28 (session 28)  
 **Stack:** Next.js 14 · Supabase · Firebase Cloud Messaging · React Native/Expo · TypeScript
 
 ---
 
 ## Current Sprint
 
-**Sprint 17 (Session 26) — UX Improvements: Citizen Awareness + Reassign Flow — COMPLETE**  
-Fixed redundant reassign dropdown (current responder no longer appears as a reassign option), added "Assignment Cancelled" FCM push to previously-assigned responder on reassignment, improved citizen ActiveIncidentScreen to show TL name on acknowledgement and responder name on assignment/en_route/arrived, and added "Reported By" citizen name row to TL incident detail page.
+**Sprint 18 (Session 28) — Live ETA for Citizens — COMPLETE**  
+Enhanced the citizen's Active Incident screen with a prominent live ETA card. Shows estimated arrival time and distance for `assigned`, `accepted`, and `en_route` statuses. `en_route` uses live responder GPS (updates every 5s via Supabase Realtime). `assigned`/`accepted` shows estimated ETA from responder's last known profile location. Fullscreen map overlay now also shows distance alongside ETA.
 
 ---
 
@@ -1284,9 +1284,10 @@ Commit: `badb8be` — pushed to master, Vercel auto-deployed.
 
 ## Next Steps
 
-1. Test APK on device — verify App Drawer freeze fix and video lightbox fix
-2. Production build prep
-3. Admin dashboard live incident map (deferred — foundation now in `LiveIncidentMap.tsx`)
+1. Run EAS build — `cd mobile && eas build --platform android --profile preview` — to get updated APK with live ETA card
+2. Test on device: trigger SOS → verify ETA card appears on `assigned`, then updates live on `en_route`
+3. Production build prep
+4. Admin dashboard live incident map (deferred — foundation now in `LiveIncidentMap.tsx`)
 
 ### Completed (previously listed as pending)
 - ✅ Migration 022 applied — `incident-media` bucket restored to public (session 21)

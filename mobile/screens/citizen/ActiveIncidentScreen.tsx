@@ -64,25 +64,35 @@ function haversineKm(lat1: number, lng1: number, lat2: number, lng2: number): nu
   return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a))
 }
 
-function getEta(incident: Incident): string | null {
-  if (
-    incident.status !== 'en_route' ||
-    !incident.responder_lat ||
-    !incident.responder_lng ||
-    !incident.citizen_lat ||
-    !incident.citizen_lng
-  )
-    return null
-  const km = haversineKm(
-    incident.responder_lat,
-    incident.responder_lng,
-    incident.citizen_lat,
-    incident.citizen_lng
-  )
-  const minutes = Math.ceil((km / 40) * 60)
-  if (minutes < 1) return 'Less than 1 min away'
-  if (minutes === 1) return '~1 min away'
-  return `~${minutes} mins away`
+function getEtaInfo(
+  incident: Incident,
+  lastKnown: { lat: number; lng: number } | null
+): { eta: string; km: string } | null {
+  const cLat = incident.citizen_lat
+  const cLng = incident.citizen_lng
+  if (!cLat || !cLng) return null
+
+  let rLat: number | null = null
+  let rLng: number | null = null
+
+  if (incident.status === 'en_route' && incident.responder_lat && incident.responder_lng) {
+    rLat = incident.responder_lat
+    rLng = incident.responder_lng
+  } else if (
+    (incident.status === 'assigned' || incident.status === 'accepted') &&
+    lastKnown
+  ) {
+    rLat = lastKnown.lat
+    rLng = lastKnown.lng
+  }
+
+  if (!rLat || !rLng) return null
+
+  const distKm = haversineKm(rLat, rLng, cLat, cLng)
+  const minutes = Math.ceil((distKm / 40) * 60)
+  const eta = minutes < 1 ? 'Less than 1 min' : minutes === 1 ? '~1 min' : `~${minutes} min`
+  const km = distKm < 1 ? `${Math.round(distKm * 1000)} m` : `${distKm.toFixed(1)} km`
+  return { eta, km }
 }
 
 function getMapRegion(incident: Incident) {
@@ -111,6 +121,7 @@ export default function ActiveIncidentScreen({ incidentId, userId, pendingMedia,
   const [incident, setIncident] = useState<Incident | null>(null)
   const [tlName, setTlName] = useState<string | null>(null)
   const [responderName, setResponderName] = useState<string | null>(null)
+  const [responderLastKnown, setResponderLastKnown] = useState<{ lat: number; lng: number } | null>(null)
   const [loading, setLoading] = useState(true)
   const [mapExpanded, setMapExpanded] = useState(false)
   const [confirming, setConfirming] = useState(false)
@@ -194,7 +205,7 @@ export default function ActiveIncidentScreen({ incidentId, userId, pendingMedia,
   async function fetchIncident() {
     const { data, error } = await supabase
       .from('incidents')
-      .select('*, tl_profile:profiles!assigned_tl_id(full_name), responder_profile:profiles!assigned_responder_id(full_name)')
+      .select('*, tl_profile:profiles!assigned_tl_id(full_name), responder_profile:profiles!assigned_responder_id(full_name, last_known_lat, last_known_lng)')
       .eq('id', incidentId)
       .single()
 
@@ -205,6 +216,12 @@ export default function ActiveIncidentScreen({ incidentId, userId, pendingMedia,
       setIncident(incidentData as Incident)
       setTlName((tl_profile as { full_name: string } | null)?.full_name ?? null)
       setResponderName((responder_profile as { full_name: string } | null)?.full_name ?? null)
+      const rp = responder_profile as { full_name: string; last_known_lat: number | null; last_known_lng: number | null } | null
+      setResponderLastKnown(
+        rp?.last_known_lat && rp?.last_known_lng
+          ? { lat: rp.last_known_lat, lng: rp.last_known_lng }
+          : null
+      )
     }
     setLoading(false)
   }
@@ -230,7 +247,8 @@ export default function ActiveIncidentScreen({ incidentId, userId, pendingMedia,
 
   const statusColor = STATUS_COLORS[incident.status] ?? '#6b7280'
   const statusLabel = STATUS_LABELS[incident.status] ?? incident.status
-  const eta = getEta(incident)
+  const etaInfo = getEtaInfo(incident, responderLastKnown)
+  const showEtaCard = ['assigned', 'accepted', 'en_route'].includes(incident.status) && !!etaInfo
 
   const statusPersonName =
     incident.status === 'acknowledged' ? tlName :
@@ -288,13 +306,32 @@ export default function ActiveIncidentScreen({ incidentId, userId, pendingMedia,
           </View>
         </View>
 
+        {showEtaCard && etaInfo && (
+          <View style={[styles.etaCard, incident.status === 'en_route' && styles.etaCardLive]}>
+            <View style={styles.etaCardLeft}>
+              <Text style={styles.etaCardTitle}>
+                {incident.status === 'en_route' ? '🚔 Responder En Route' : '⏱ Estimated Arrival'}
+              </Text>
+              <Text style={styles.etaCardKm}>{etaInfo.km} away</Text>
+            </View>
+            <View style={styles.etaCardRight}>
+              <Text style={styles.etaCardTime}>{etaInfo.eta}</Text>
+              {incident.status === 'en_route' && (
+                <View style={styles.liveBadge}>
+                  <Text style={styles.liveBadgeText}>LIVE</Text>
+                </View>
+              )}
+            </View>
+          </View>
+        )}
+
         {showMap && mapRegion && (
           <View style={styles.mapCard}>
             <View style={styles.mapHeader}>
               <Text style={styles.mapTitle}>
                 {incident.status === 'arrived' ? '📍 Responder Arrived' : '🚔 Responder En Route'}
               </Text>
-              {eta && <Text style={styles.etaText}>{eta}</Text>}
+              {etaInfo && <Text style={styles.etaText}>{etaInfo.eta}</Text>}
             </View>
 
             {/* Tap to expand */}
@@ -431,9 +468,9 @@ export default function ActiveIncidentScreen({ incidentId, userId, pendingMedia,
             </MapView>
 
             {/* ETA overlay */}
-            {eta && (
+            {etaInfo && (
               <View style={styles.fullscreenEta}>
-                <Text style={styles.fullscreenEtaText}>{eta}</Text>
+                <Text style={styles.fullscreenEtaText}>{etaInfo.eta} · {etaInfo.km}</Text>
               </View>
             )}
 
@@ -618,6 +655,32 @@ const styles = StyleSheet.create({
     fontSize: 14,
     fontWeight: '600',
   },
+  etaCard: {
+    backgroundColor: '#052e16',
+    borderRadius: 14,
+    padding: 16,
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    borderWidth: 1,
+    borderColor: '#16a34a',
+  },
+  etaCardLive: {
+    backgroundColor: '#052e16',
+    borderColor: '#22c55e',
+  },
+  etaCardLeft: { flex: 1 },
+  etaCardTitle: { color: '#86efac', fontSize: 13, fontWeight: '600', marginBottom: 4 },
+  etaCardKm: { color: '#4ade80', fontSize: 12 },
+  etaCardRight: { alignItems: 'flex-end', gap: 6 },
+  etaCardTime: { color: '#4ade80', fontSize: 26, fontWeight: '800', letterSpacing: -0.5 },
+  liveBadge: {
+    backgroundColor: '#16a34a',
+    borderRadius: 4,
+    paddingHorizontal: 7,
+    paddingVertical: 2,
+  },
+  liveBadgeText: { color: '#fff', fontSize: 10, fontWeight: '700', letterSpacing: 1 },
   errorText: { color: '#9ca3af', fontSize: 16, textAlign: 'center', marginBottom: 16 },
   // Fullscreen modal
   fullscreenContainer: { flex: 1, backgroundColor: '#000' },
