@@ -1,11 +1,14 @@
 # STATUS — Guardian Dispatch Platform
 
-**Last Updated:** 2026-04-28 (session 28)  
+**Last Updated:** 2026-04-28 (session 29)  
 **Stack:** Next.js 14 · Supabase · Firebase Cloud Messaging · React Native/Expo · TypeScript
 
 ---
 
 ## Current Sprint
+
+**Sprint 19 (Session 29) — Incident History Improvements — COMPLETE**  
+Three improvements to the Admin/TL Incident History page: (1) Organization name now shown below the responder name on every incident row and in the expanded detail panel + PDF export — uses `organizations!organization_id(name)` FK join. (2) "Crime" label renamed to "Police" everywhere (badge, expanded detail, PDF) to match the mobile app. (3) Search box now scopes to incident code, organization name, and responder name only — removed address/type from search. Bug fixed: initial join used wrong PostgREST syntax (`organization:organizations(name)`) which silently returned null and wiped all 48 records; corrected to `organizations!organization_id(name)` with explicit FK hint.
 
 **Sprint 18 (Session 28) — Live ETA for Citizens — COMPLETE**  
 Enhanced the citizen's Active Incident screen with a prominent live ETA card. Shows estimated arrival time and distance for `assigned`, `accepted`, and `en_route` statuses. `en_route` uses live responder GPS (updates every 5s via Supabase Realtime). `assigned`/`accepted` shows estimated ETA from responder's last known profile location. Fullscreen map overlay now also shows distance alongside ETA.
@@ -1286,8 +1289,9 @@ Commit: `badb8be` — pushed to master, Vercel auto-deployed.
 
 1. Run EAS build — `cd mobile && eas build --platform android --profile preview` — to get updated APK with live ETA card
 2. Test on device: trigger SOS → verify ETA card appears on `assigned`, then updates live on `en_route`
-3. Production build prep
+3. **Response Time Analytics dashboard** — charts/trends for avg response time per org, per type, per week
 4. Admin dashboard live incident map (deferred — foundation now in `LiveIncidentMap.tsx`)
+5. Production build prep
 
 ### Completed (previously listed as pending)
 - ✅ Migration 022 applied — `incident-media` bucket restored to public (session 21)

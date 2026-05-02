@@ -40,7 +40,7 @@ export default async function IncidentHistoryPage({
   let incidentsQuery = supabase
     .from('incidents')
     .select(
-      'id, incident_code, emergency_type, status, citizen_address, citizen_lat, citizen_lng, assigned_responder_id, notes, response_time_seconds, resolved_at, en_route_at, arrived_at, created_at, responder_assigned_at, tl_assigned_at, responder_profile:profiles!assigned_responder_id(full_name)'
+      'id, incident_code, emergency_type, status, citizen_address, citizen_lat, citizen_lng, assigned_responder_id, notes, response_time_seconds, resolved_at, en_route_at, arrived_at, created_at, responder_assigned_at, tl_assigned_at, responder_profile:profiles!assigned_responder_id(full_name), organizations!organization_id(name)'
     )
     .in('status', ['resolved', 'closed'])
     .gte('resolved_at', monthStart)

@@ -3,7 +3,7 @@
 import { useState, useTransition } from 'react'
 import Image from 'next/image'
 import Link from 'next/link'
-import { LayoutDashboard, Siren, Settings, History, Truck, User, ArrowLeft, Check, X } from 'lucide-react'
+import { LayoutDashboard, Siren, Settings, History, TrendingUp, Truck, User, ArrowLeft, Check, X } from 'lucide-react'
 import { updateProfileAction, updateEmailAction, updatePasswordAction } from './actions'
 
 function SidebarLink({ icon, label, href, active }: { icon: React.ReactNode; label: string; href: string; active?: boolean }) {
@@ -180,6 +180,7 @@ export default function ProfileClient({
             {(role === 'team_leader') && <SidebarLink icon={<Siren size={15} />} label="Incident Center" href="/dashboard/tl" />}
             {isAdmin && <SidebarLink icon={<Siren size={15} />} label="Incident Center" href="/dashboard/incident-center" />}
             {isTL && <SidebarLink icon={<History size={15} />} label="Incident History" href="/dashboard/incident-history" />}
+            {isTL && <SidebarLink icon={<TrendingUp size={15} />} label="Analytics" href="/dashboard/analytics" />}
             {isAdmin && <SidebarLink icon={<Settings size={15} />} label="Admin Panel" href="/admin" />}
             {isResponder && <SidebarLink icon={<Truck size={15} />} label="Responder Hub" href="/dashboard/responder" />}
             <SidebarLink icon={<User size={15} />} label="Profile" href="/dashboard/profile" active />

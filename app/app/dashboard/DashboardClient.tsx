@@ -8,7 +8,7 @@ import { createClient } from '../lib/supabase/client'
 import {
   LayoutDashboard, Siren, Settings, Truck,
   Bell, User, ChevronDown, LogOut, Eye,
-  Radio, Clock, AlertTriangle, ChevronRight, History, CheckCircle2,
+  Radio, Clock, AlertTriangle, ChevronRight, History, CheckCircle2, TrendingUp,
 } from 'lucide-react'
 import { logout } from '../lib/auth/actions'
 
@@ -296,6 +296,7 @@ export default function DashboardClient({
             {role === 'team_leader' && <SidebarItem icon={<Siren size={15} />} label="Incident Center" href="/dashboard/tl" />}
             {isAdmin && <SidebarItem icon={<Siren size={15} />} label="Incident Center" href="/dashboard/incident-center" />}
             {isTL && <SidebarItem icon={<History size={15} />} label="Incident History" href="/dashboard/incident-history" />}
+            {isTL && <SidebarItem icon={<TrendingUp size={15} />} label="Analytics" href="/dashboard/analytics" />}
             {isAdmin && <SidebarItem icon={<Settings size={15} />} label="Admin Panel" href="/admin" />}
             {isResponder && <SidebarItem icon={<Truck size={15} />} label="Responder Hub" href="/dashboard/responder" />}
           </nav>

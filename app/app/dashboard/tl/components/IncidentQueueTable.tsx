@@ -32,6 +32,7 @@ export interface ResolvedIncident {
   citizen_lng: number | null
   assigned_responder_id: string | null
   responder_profile?: { full_name: string } | null
+  organizations?: { name: string } | null
   notes: string | null
   response_time_seconds: number | null
   resolved_at: string | null

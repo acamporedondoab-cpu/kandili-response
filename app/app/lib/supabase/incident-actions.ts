@@ -165,7 +165,7 @@ export async function assignResponder(incidentId: string, responderId: string) {
 
   const { data: existing } = await supabase
     .from('incidents')
-    .select('status')
+    .select('status, assigned_responder_id, tl_assigned_at, responder_assigned_at, incident_code')
     .eq('id', incidentId)
     .single()
   if (!existing || ASSIGN_BLOCKED_STATUSES.includes(existing.status)) {
@@ -173,41 +173,56 @@ export async function assignResponder(incidentId: string, responderId: string) {
   }
 
   const now = new Date().toISOString()
+  const previousResponderId = existing.assigned_responder_id ?? null
+  const updatePayload = {
+    assigned_responder_id: responderId,
+    assigned_tl_id: current.userId,
+    status: 'assigned',
+    tl_assigned_at: existing.tl_assigned_at ?? now,
+    responder_assigned_at: now,
+  }
 
-  const { error } = await supabase
-    .from('incidents')
-    .update({
-      assigned_responder_id: responderId,
-      assigned_tl_id: current.userId,
-      status: 'assigned',
-      tl_assigned_at: now,
-      responder_assigned_at: now,
-    })
-    .eq('id', incidentId)
+  // Concurrency guard: prevent two simultaneous TL assignments from both succeeding
+  const assignQuery = existing.responder_assigned_at != null
+    ? supabase.from('incidents').update(updatePayload).eq('id', incidentId).eq('responder_assigned_at', existing.responder_assigned_at)
+    : supabase.from('incidents').update(updatePayload).eq('id', incidentId).is('responder_assigned_at', null)
+
+  const { error, data: updatedRows } = await assignQuery.select('id')
 
   if (error) {
     console.error('[assignResponder] update failed:', error.message)
     throw new Error('Failed to assign responder')
   }
+  if (!updatedRows?.length) {
+    throw new Error('Incident was modified concurrently — please refresh and try again')
+  }
 
-  // Fetch responder FCM token and incident code for push notification
+  // Notify displaced responder (auto-assigned by escalation or previously TL-assigned)
+  if (previousResponderId && previousResponderId !== responderId) {
+    const { data: prevProfile } = await supabase
+      .from('profiles').select('fcm_token').eq('id', previousResponderId).single()
+    if (prevProfile?.fcm_token) {
+      await sendPush(
+        prevProfile.fcm_token,
+        'Assignment Cancelled',
+        `You have been unassigned from incident ${existing.incident_code}. TL has manually reassigned.`,
+        { incident_id: incidentId, type: 'unassignment' }
+      ).catch((err) => console.error('[assignResponder] FCM unassign push failed:', err))
+    }
+  }
+
+  // Notify newly assigned responder
   const { data: responderProfile } = await supabase
     .from('profiles')
     .select('fcm_token, full_name')
     .eq('id', responderId)
     .single()
 
-  const { data: incidentRow } = await supabase
-    .from('incidents')
-    .select('incident_code')
-    .eq('id', incidentId)
-    .single()
-
-  if (responderProfile?.fcm_token && incidentRow?.incident_code) {
+  if (responderProfile?.fcm_token) {
     await sendPush(
       responderProfile.fcm_token,
       '🚨 Incident Assigned',
-      `You have been assigned to incident ${incidentRow.incident_code}`,
+      `You have been assigned to incident ${existing.incident_code}`,
       { incident_id: incidentId, type: 'assignment' }
     ).catch((err) => console.error('[assignResponder] FCM push failed:', err))
   }
@@ -229,7 +244,7 @@ export async function assignResponderAction(
 
   const { data: existing } = await supabase
     .from('incidents')
-    .select('status, assigned_responder_id, incident_code')
+    .select('status, assigned_responder_id, tl_assigned_at, responder_assigned_at, incident_code')
     .eq('id', incidentId)
     .single()
   if (!existing || ASSIGN_BLOCKED_STATUSES.includes(existing.status)) {
@@ -240,24 +255,30 @@ export async function assignResponderAction(
   const incidentCode = existing.incident_code
 
   const now = new Date().toISOString()
+  const updatePayload = {
+    assigned_responder_id: responderId,
+    assigned_tl_id: current.userId,
+    status: 'assigned',
+    tl_assigned_at: existing.tl_assigned_at ?? now,
+    responder_assigned_at: now,
+  }
 
-  const { error } = await supabase
-    .from('incidents')
-    .update({
-      assigned_responder_id: responderId,
-      assigned_tl_id: current.userId,
-      status: 'assigned',
-      tl_assigned_at: now,
-      responder_assigned_at: now,
-    })
-    .eq('id', incidentId)
+  // Concurrency guard: prevent two simultaneous TL assignments from both succeeding
+  const assignQuery = existing.responder_assigned_at != null
+    ? supabase.from('incidents').update(updatePayload).eq('id', incidentId).eq('responder_assigned_at', existing.responder_assigned_at)
+    : supabase.from('incidents').update(updatePayload).eq('id', incidentId).is('responder_assigned_at', null)
+
+  const { error, data: updatedRows } = await assignQuery.select('id')
 
   if (error) {
     console.error('[assignResponderAction] update failed:', error.message)
     return { success: false, error: 'Failed to assign responder' }
   }
+  if (!updatedRows?.length) {
+    return { success: false, error: 'Incident was modified concurrently — please refresh and try again' }
+  }
 
-  // Notify previously assigned responder they have been unassigned
+  // Notify any previously assigned responder (including auto-assigned by escalation)
   if (previousResponderId && previousResponderId !== responderId) {
     const { data: prevProfile } = await supabase
       .from('profiles')
@@ -268,7 +289,7 @@ export async function assignResponderAction(
       await sendPush(
         prevProfile.fcm_token,
         'Assignment Cancelled',
-        `You have been unassigned from incident ${incidentCode}. Stand by.`,
+        `You have been unassigned from incident ${incidentCode}. TL has manually reassigned.`,
         { incident_id: incidentId, type: 'unassignment' }
       ).catch((err) => console.error('[assignResponderAction] FCM unassign push failed:', err))
     }

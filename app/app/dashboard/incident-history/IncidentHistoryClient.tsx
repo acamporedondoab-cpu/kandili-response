@@ -4,7 +4,7 @@ import { useState, useEffect } from 'react'
 import { useRouter } from 'next/navigation'
 import Image from 'next/image'
 import Link from 'next/link'
-import { LayoutDashboard, Siren, Settings, History, ChevronLeft, ChevronRight, Search, ChevronDown } from 'lucide-react'
+import { LayoutDashboard, Siren, Settings, History, TrendingUp, ChevronLeft, ChevronRight, Search, ChevronDown } from 'lucide-react'
 import { createClient } from '../../lib/supabase/client'
 import type { ResolvedIncident } from '../tl/components/IncidentQueueTable'
 
@@ -79,7 +79,7 @@ function escapeHtml(str: string | null): string {
   return str.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;')
 }
 
-function exportPDF(inc: ResolvedIncident, responderName: string) {
+function exportPDF(inc: ResolvedIncident, responderName: string, orgName: string | null) {
   const report = parseReport(inc.notes)
   const resolvedDate = inc.resolved_at
     ? new Date(inc.resolved_at).toLocaleString('en-US', { dateStyle: 'long', timeStyle: 'short' })
@@ -120,10 +120,11 @@ function exportPDF(inc: ResolvedIncident, responderName: string) {
   <div class="section">
     <div class="section-title">Incident Details</div>
     <div class="row"><span class="label">Incident Code:</span><span class="value">${escapeHtml(inc.incident_code)}</span></div>
-    <div class="row"><span class="label">Type:</span><span class="value">${inc.emergency_type === 'crime' ? 'Crime' : 'Medical'}</span></div>
+    <div class="row"><span class="label">Type:</span><span class="value">${inc.emergency_type === 'crime' ? 'Police' : 'Medical'}</span></div>
     <div class="row"><span class="label">Final Status:</span><span class="value">${escapeHtml(inc.status)}</span></div>
     <div class="row"><span class="label">Location:</span><span class="value">${escapeHtml(locationLabel(inc))}</span></div>
     <div class="row"><span class="label">Assigned Responder:</span><span class="value">${escapeHtml(responderName)}</span></div>
+    ${orgName ? `<div class="row"><span class="label">Organization:</span><span class="value">${escapeHtml(orgName)}</span></div>` : ''}
     <div class="row"><span class="label">Response Time:</span><span class="value">${calcResponseTime(inc)}</span></div>
   </div>
   <div class="section">
@@ -172,6 +173,11 @@ function IncidentRow({
   const responderName = inc.assigned_responder_id
     ? (joinedName ?? responderMap[inc.assigned_responder_id] ?? 'Unknown')
     : '—'
+  const orgName = inc.organizations && !Array.isArray(inc.organizations)
+    ? (inc.organizations as { name: string }).name
+    : Array.isArray(inc.organizations) && (inc.organizations as unknown[]).length > 0
+      ? ((inc.organizations as { name: string }[])[0]).name
+      : null
   const report = parseReport(inc.notes)
   const [media, setMedia] = useState<IncidentMedia[]>([])
   const [lightboxUrl, setLightboxUrl] = useState<string | null>(null)
@@ -223,7 +229,7 @@ function IncidentRow({
           color: inc.emergency_type === 'crime' ? '#93C5FD' : '#6EE7B7',
           border: inc.emergency_type === 'crime' ? '1px solid rgba(59,130,246,0.30)' : '1px solid rgba(16,185,129,0.30)',
         }}>
-          {inc.emergency_type === 'crime' ? 'Crime' : 'Medical'}
+          {inc.emergency_type === 'crime' ? 'Police' : 'Medical'}
         </span>
 
         {/* Description + Location stacked */}
@@ -238,9 +244,12 @@ function IncidentRow({
           </span>
         </div>
 
-        <span style={{ fontSize: 12.5, color: 'rgba(255,255,255,0.55)', flexShrink: 0, width: 140, textAlign: 'right' }}>
-          {responderName}
-        </span>
+        <div style={{ flexShrink: 0, width: 160, textAlign: 'right', display: 'flex', flexDirection: 'column', gap: 2 }}>
+          <span style={{ fontSize: 12.5, color: 'rgba(255,255,255,0.55)' }}>{responderName}</span>
+          {orgName && (
+            <span style={{ fontSize: 10.5, color: 'rgba(255,255,255,0.28)' }}>{orgName}</span>
+          )}
+        </div>
 
         <span style={{ fontSize: 11.5, color: '#34D399', fontWeight: 600, flexShrink: 0, width: 80, textAlign: 'right' }}>
           {formatTs(inc.resolved_at)}
@@ -289,6 +298,12 @@ function IncidentRow({
               <p style={{ fontSize: 10, color: 'rgba(255,255,255,0.28)', marginBottom: 4, textTransform: 'uppercase', letterSpacing: '0.07em' }}>Responder</p>
               <p style={{ fontSize: 13, fontWeight: 600, color: 'rgba(255,255,255,0.80)' }}>{responderName}</p>
             </div>
+            {orgName && (
+              <div>
+                <p style={{ fontSize: 10, color: 'rgba(255,255,255,0.28)', marginBottom: 4, textTransform: 'uppercase', letterSpacing: '0.07em' }}>Organization</p>
+                <p style={{ fontSize: 13, fontWeight: 600, color: 'rgba(255,255,255,0.80)' }}>{orgName}</p>
+              </div>
+            )}
             <div>
               <p style={{ fontSize: 10, color: 'rgba(255,255,255,0.28)', marginBottom: 4, textTransform: 'uppercase', letterSpacing: '0.07em' }}>Response Time</p>
               <p style={{ fontSize: 13, fontWeight: 600, color: '#FBBF24' }}>{calcResponseTime(inc)}</p>
@@ -385,7 +400,7 @@ function IncidentRow({
           {/* PDF Export */}
           <div style={{ display: 'flex', justifyContent: 'flex-end', marginTop: 14 }}>
             <button
-              onClick={(e) => { e.stopPropagation(); exportPDF(inc, responderName) }}
+              onClick={(e) => { e.stopPropagation(); exportPDF(inc, responderName, orgName) }}
               style={{
                 display: 'flex', alignItems: 'center', gap: 6,
                 padding: '7px 14px', borderRadius: 8, border: '1px solid rgba(255,255,255,0.12)',
@@ -530,10 +545,23 @@ export default function IncidentHistoryClient({
   const filtered = incidents.filter((inc) => {
     if (!search.trim()) return true
     const q = search.toLowerCase()
+    const incOrgName = inc.organizations && !Array.isArray(inc.organizations)
+      ? (inc.organizations as { name: string }).name
+      : Array.isArray(inc.organizations) && (inc.organizations as unknown[]).length > 0
+        ? ((inc.organizations as { name: string }[])[0]).name
+        : null
+    const incJoinedName = inc.responder_profile && !Array.isArray(inc.responder_profile)
+      ? (inc.responder_profile as { full_name: string }).full_name
+      : Array.isArray(inc.responder_profile) && (inc.responder_profile as unknown[]).length > 0
+        ? ((inc.responder_profile as { full_name: string }[])[0]).full_name
+        : null
+    const incResponderName = inc.assigned_responder_id
+      ? (incJoinedName ?? responderMap[inc.assigned_responder_id] ?? '')
+      : ''
     return (
       inc.incident_code.toLowerCase().includes(q) ||
-      (inc.citizen_address ?? '').toLowerCase().includes(q) ||
-      inc.emergency_type.toLowerCase().includes(q)
+      (incOrgName ?? '').toLowerCase().includes(q) ||
+      incResponderName.toLowerCase().includes(q)
     )
   })
 
@@ -583,6 +611,7 @@ export default function IncidentHistoryClient({
             <SidebarLink icon={<LayoutDashboard size={15} />} label="Overview" href="/dashboard" />
             {isTL && <SidebarLink icon={<Siren size={15} />} label="Incident Center" href={isAdmin ? '/dashboard/incident-center' : '/dashboard/tl'} />}
             <SidebarLink icon={<History size={15} />} label="Incident History" href="/dashboard/incident-history" active />
+            {isTL && <SidebarLink icon={<TrendingUp size={15} />} label="Analytics" href="/dashboard/analytics" />}
             {isAdmin && <SidebarLink icon={<Settings size={15} />} label="Admin Panel" href="/admin" />}
           </nav>
 
@@ -676,7 +705,7 @@ export default function IncidentHistoryClient({
                 <Search size={14} color="rgba(255,255,255,0.28)" />
                 <input
                   type="text"
-                  placeholder="Search by code, location, or type…"
+                  placeholder="Search by incident code, organization, or responder…"
                   value={search}
                   onChange={(e) => setSearch(e.target.value)}
                   style={{
